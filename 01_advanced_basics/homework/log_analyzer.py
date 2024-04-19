@@ -8,25 +8,17 @@ import logging
 import os
 import regex
 
-from collections import namedtuple
+from collections import namedtuple, defaultdict
 from statistics import median
 from string import Template
 
-# log_format ui_short '$remote_addr  $remote_user $http_x_real_ip [$time_local] "$request" '
-#                     '$status $body_bytes_sent "$http_referer" '
-#                     '"$http_user_agent" "$http_x_forwarded_for" "$http_X_REQUEST_ID" "$http_X_RB_USER" '  
-#                     '$request_time';
-
-config = {
+DEFAULT_CONFIG = {
     "REPORT_SIZE": 1000,
     "REPORT_DIR": "./report",
     "LOG_DIR": "./log",
-    "LOG_FILE": None
+    "LOG_FILE": None,
+    "ERROR_LIMIT": 0.8
 }
-
-logger = logging.getLogger(__name__)
-
-log_req_time_total = 0.0
 
 
 def parse_args():
@@ -36,10 +28,9 @@ def parse_args():
     @return: str
     """
 
-    def is_valid_file(parser, arg):
+    def is_valid_file(arg):
         """
         проверка что файл переданный в параметрах вызова, существует
-        @param parser: ссылка на парсер аргументов
         @param arg: аргумент для проверки
         @return: возвращает аргумент, если он корректный. Иначе ошибка
         """
@@ -50,12 +41,12 @@ def parse_args():
     parser = argparse.ArgumentParser(description='nginx log analyzer')
     parser.add_argument("--config", "-f", dest="config", default="./log_analyzer.conf",
                         help="path to config file", metavar="FILE",
-                        type=lambda x: is_valid_file(parser, x))
+                        type=lambda x: is_valid_file(x))
     args = parser.parse_args()
     return args.config
 
 
-def logger_config(log_path=None):
+def logging_config(log_path=None):
     """
     настройка логирования
     @param log_path: путь к файлу лога
@@ -65,7 +56,7 @@ def logger_config(log_path=None):
                         format="[%(asctime)s] %(levelname).1s %(message)s")
 
 
-def read_config_file(path_to_config: str):
+def read_config_file(path_to_config: str) -> json:
     """
     читает конфиг из json файла и дополняет дефолтными значениями если необходимо
     @param path_to_config: путь к файлу
@@ -74,10 +65,10 @@ def read_config_file(path_to_config: str):
     try:
         with open(path_to_config, 'rt') as f_conf:
             config_from_file = json.load(f_conf)
-    except Exception as err:
-        print(f"Error decoding json config file: {path_to_config}")
+    except Exception as e:
+        logging.exception(f"Error decoding json config file: {path_to_config}", e)
         raise
-    return config | config_from_file
+    return DEFAULT_CONFIG | config_from_file
 
 
 def validate_date(date_text):
@@ -100,9 +91,9 @@ def find_last_nginx_log(path: str):
     @return: namedtuple (путь, дата, расширение файла)
     """
     max_date = datetime.date(1, 1, 1)
-    log_name = None
+    last_logfile = None
     reg_name = r"^nginx-access-ui\.log-(\d{8})\.*(gz|log|txt)*$"
-    fname = namedtuple("Log_filename", ['path', 'date', 'ext'])
+    fname = namedtuple("LogFile", "path, date, ext")
     if os.path.isdir(path):
         for filename in os.listdir(path):
             get_name = regex.findall(reg_name, filename)
@@ -110,90 +101,59 @@ def find_last_nginx_log(path: str):
                 dt = validate_date(get_name[0][0])
                 if dt and dt > max_date:
                     max_date = dt
-                    log_name = fname(os.path.join(path, filename), dt, str(get_name[0][1]))
-        if log_name:
-            logging.info(f"last log file is {log_name.path}")
+                    last_logfile = fname(os.path.join(path, filename), dt, str(get_name[0][1]))
+        if last_logfile:
+            logging.info(f"last log file is {last_logfile.path}")
         else:
             logging.error(f"log files not found in {path}")
-        return log_name
     else:
         logging.error(f"log file directory not found: {path}")
-        return None
+    return last_logfile
 
 
-def gen_report_name(path: str, rep_date: datetime.date) -> str:
+def logfile_parse(logfile: namedtuple("LogFile", "path, date, ext"), error_limit=0.8):
     """
-    проверяет что файла с отчетом за эту дату нет
-    @param path: путь к каталогу с отчетами
-    @param rep_date: дата отчета
-    @return: (путь к файлу или None если файл уже есть)
-    """
-    rep_name = os.path.join(path, rep_date.strftime("report-%Y.%m.%d.html"))
-    if os.path.exists(rep_name):
-        logging.info(f"report {rep_name} already exists")
-        return None
-    return rep_name
-
-
-def logfile_read(log_name: str):
-    """
-    читает файл выдавая строки по запросу
-    @param log_name: namedtuple("Log_filename", ['name', 'date', 'ext'])
+    читает файл выдавая распарсенные строки
+    если превышено кол-во ошибок, пишет в лог и выходит
+    @param logfile: namedtuple("LogFile", "path, date, ext")
+    @param error_limit: допустимая часть ошибок от общего кол-ва обработанных строк
     @return: str
     """
-    if log_name.ext == "gz":
-        log = gzip.open(log_name.path, 'rt')
-    else:
-        log = open(log_name.path, 'rt')
-    with log as l_file:
-        for line in l_file:
-            yield line
-
-
-def log_string_parse(log_str: str):
-    """
-    Парсит строку лог файла
-    :param log_str: str
-    :return: url: str, time: float
-    """
-    global log_req_time_total
-    url, time = "", 0.0
     tmpl = regex.compile(
-        r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} .* \"(?:GET|POST|DELETE|PUT|HEAD|OPTIONS|-) (.*) HTTP/\d.\d\".* (\d+\.\d*)$")
+        r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} .* \"(?:GET|POST|DELETE|PUT|HEAD|OPTIONS|-) (.*) HTTP/\d.\d\".* ("
+        r"\d+\.\d*)$")
+    total, errors = 0, 0
+    with gzip.open(logfile.path, 'rt') if logfile.ext == "gz" else open(logfile.path, 'rt') as log:
+        for line in log:
+            total += 1
+            try:
+                url, time = regex.findall(tmpl, line)[0]
+                url = str(url)
+                time = float(time)
+                yield url, time
+            except IndexError:
+                errors += 1
 
-    try:
-        url, time = regex.findall(tmpl, log_str)[0]
-        url = str(url)
-        time = float(time)
-        log_req_time_total += time
-    except IndexError:
-        logging.warning("Wrong string format: " + log_str)
-    return url, time
+    logging.info(f"{total} lines parsed with {errors} errors")
+
+    if total > 0 and errors / total > error_limit:
+        raise Exception(f"Errors limit {error_limit} exceeded!")
 
 
-def log_analyze(log_strings) -> dict:
+def generate_report(logfile_data, report_size: int) -> list:
     """
-    Составляет словарь посещенных url с временем доступа для дальнейшего расчета статистики
-    :param log_strings: iterable
-    :return: log_counter: dict
+    Обрабатывает iterable logfile_data, вычисляет статистику посещения url-ов
+    и выдает отчет
+    :param logfile_data:
+    :param report_size:
+    :return: (массив заданного размера отсортированный по времени затраченному на посещение url)
     """
-    log_counter = {}
-    for log_str in log_strings:
-        l_url, l_time = log_string_parse(log_str)
-        if l_url in log_counter:
-            log_counter[l_url].append(l_time)
-        else:
-            log_counter[l_url] = [l_time]
-    return log_counter
+    log_counter = defaultdict(list)
+    total_time = 0.0
+    for url, time in logfile_data:
+        log_counter[url].append(time)
+        total_time += time
 
-
-def count_statistics(log_counter: dict, log_limit: int):
-    """
-    Считает статистику по url
-    сортирует полученный список по времени доступа и отрезает log_limit самых больших значений
-    :param log_limit: int
-    :return: url_stat: list
-    """
     url_stat = []
     for url, times in log_counter.items():
         url_stat.append(
@@ -205,30 +165,35 @@ def count_statistics(log_counter: dict, log_limit: int):
                 'time_sum': sum(times),
                 'time_avg': sum(times) / len(times),
                 'time_med': median(times),
-                'time_perc': (sum(times) / log_req_time_total) * 100
+                'time_perc': (sum(times) / total_time) * 100
             })
     url_stat.sort(key=lambda x: x['time_sum'], reverse=True)
 
-    if len(url_stat) < log_limit:
-        log_limit = len(url_stat)
+    if len(url_stat) < report_size:
+        report_size = len(url_stat)
 
-    return url_stat[0:log_limit]
+    return url_stat[0:report_size]
 
 
 def make_report(stat, report_file_name, report_dir):
+    """
+    сохраняет отчет в формате html
+    :param stat: массив значений отчета
+    :param report_file_name: имя файла куда сохранить отчет
+    :param report_dir: каталог для отчетов
+    :return:
+    """
     template_path = "./report/report.html"
     if not os.path.exists(report_dir):
         os.mkdir(report_dir)
 
-    tmpl_ex = ""
-    with open(template_path, "rt") as f_rep:
-        for line in f_rep:
-            tmpl_ex += line
+    with open(template_path, "rt") as file:
+        tmpl = Template(file.read())
 
-    tmpl = Template(str(tmpl_ex))
     tmpl_sub = dict(table_json=json.dumps(stat))
-    with open(report_file_name, "wt") as f_rep_fresh:
-        f_rep_fresh.write(tmpl.safe_substitute(tmpl_sub))
+    with open(report_file_name, "wt") as file:
+        file.write(tmpl.safe_substitute(tmpl_sub))
+        logging.info(f"Report saved to {report_file_name}")
 
 
 def main():
@@ -236,21 +201,27 @@ def main():
     Получает рабочий конфиг и вызывает дальнейшие действия в программе
     @return:
     """
-    path_to_config: str = parse_args()
-    work_config = read_config_file(path_to_config)
-    logger_config(work_config["LOG_FILE"])
-    logger.info("Starting Log Analyzer. Config file is " + path_to_config)
+    work_config = read_config_file(parse_args())
+    logging_config(work_config["LOG_FILE"])
+    logging.info(f"Starting Log Analyzer. Work_config is {work_config}")
     last_log = find_last_nginx_log(work_config["LOG_DIR"])
     new_rep_name = None
-    if last_log:
-        new_rep_name = gen_report_name(work_config["REPORT_DIR"], last_log.date)
 
-    if new_rep_name:
-        print("saving report to " + new_rep_name)
-        visited_urls = log_analyze(logfile_read(last_log))
-        url_stat = count_statistics(visited_urls, work_config['REPORT_SIZE'])
-        make_report(url_stat, new_rep_name, work_config['REPORT_DIR'])
+    if last_log:
+        new_rep_name = os.path.join(work_config["REPORT_DIR"], last_log.date.strftime("report-%Y.%m.%d.html"))
+
+    if not os.path.exists(new_rep_name):
+        print(f"generating report {new_rep_name}...")
+        url_stat = generate_report(logfile_parse(last_log), work_config["REPORT_SIZE"])
+        make_report(url_stat, new_rep_name, work_config["REPORT_DIR"])
+    else:
+        logging.info(f"report {new_rep_name} already exists")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        logging.error("User requested cancel of current operation!")
+    except:
+        logging.exception("Exception occurred!")
