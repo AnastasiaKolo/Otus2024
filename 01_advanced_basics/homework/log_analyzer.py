@@ -20,6 +20,11 @@ DEFAULT_CONFIG = {
     "ERROR_LIMIT": 0.8
 }
 
+NGINX_LOG_NAME = r"^nginx-access-ui\.log-(\d{8})\.*(gz|log|txt)*$"
+
+TMPL_LOG_STRING = regex.compile(
+        r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} .* \"(?:GET|POST|DELETE|PUT|HEAD|OPTIONS|-) (.*) HTTP/\d.\d\".* ("
+        r"\d+\.\d*)$")
 
 def parse_args():
     """
@@ -84,15 +89,15 @@ def validate_date(date_text):
         return None
 
 
-def find_last_nginx_log(path: str):
+def find_last_nginx_log(path: str, reg_name: str) -> namedtuple("LogFile", "path, date, ext"):
     """
     находит имя файла лога по маске с максимальной датой в имени
-    @param path: путь к каталогу с логами
-    @return: namedtuple (путь, дата, расширение файла)
+    :param path: путь к каталогу с логами
+    :param reg_name: регулярка для поиска лога
+    :return: namedtuple (путь, дата, расширение файла)
     """
     max_date = datetime.date(1, 1, 1)
     last_logfile = None
-    reg_name = r"^nginx-access-ui\.log-(\d{8})\.*(gz|log|txt)*$"
     fname = namedtuple("LogFile", "path, date, ext")
     if os.path.isdir(path):
         for filename in os.listdir(path):
@@ -111,17 +116,15 @@ def find_last_nginx_log(path: str):
     return last_logfile
 
 
-def logfile_parse(logfile: namedtuple("LogFile", "path, date, ext"), error_limit=0.8):
+def logfile_parse(logfile: namedtuple("LogFile", "path, date, ext"), tmpl, error_limit=0.8):
     """
     читает файл выдавая распарсенные строки
     если превышено кол-во ошибок, пишет в лог и выходит
-    @param logfile: namedtuple("LogFile", "path, date, ext")
-    @param error_limit: допустимая часть ошибок от общего кол-ва обработанных строк
-    @return: str
+    :param tmpl: результат regex.compile регулярного выражения строки лога
+    :param logfile: namedtuple("LogFile", "path, date, ext")
+    :param error_limit: допустимая часть ошибок от общего кол-ва обработанных строк
+    :return: str
     """
-    tmpl = regex.compile(
-        r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} .* \"(?:GET|POST|DELETE|PUT|HEAD|OPTIONS|-) (.*) HTTP/\d.\d\".* ("
-        r"\d+\.\d*)$")
     total, errors = 0, 0
     with gzip.open(logfile.path, 'rt') if logfile.ext == "gz" else open(logfile.path, 'rt') as log:
         for line in log:
@@ -204,7 +207,7 @@ def main():
     work_config = read_config_file(parse_args())
     logging_config(work_config["LOG_FILE"])
     logging.info(f"Starting Log Analyzer. Work_config is {work_config}")
-    last_log = find_last_nginx_log(work_config["LOG_DIR"])
+    last_log = find_last_nginx_log(work_config["LOG_DIR"], NGINX_LOG_NAME)
     new_rep_name = None
 
     if last_log:
@@ -212,7 +215,7 @@ def main():
 
     if not os.path.exists(new_rep_name):
         print(f"generating report {new_rep_name}...")
-        url_stat = generate_report(logfile_parse(last_log), work_config["REPORT_SIZE"])
+        url_stat = generate_report(logfile_parse(last_log), TMPL_LOG_STRING, work_config["REPORT_SIZE"])
         make_report(url_stat, new_rep_name, work_config["REPORT_DIR"])
     else:
         logging.info(f"report {new_rep_name} already exists")
