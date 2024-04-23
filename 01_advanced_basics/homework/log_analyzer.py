@@ -11,6 +11,7 @@ import regex
 from collections import namedtuple, defaultdict
 from statistics import median
 from string import Template
+from json.decoder import JSONDecodeError
 
 DEFAULT_CONFIG = {
     "REPORT_SIZE": 1000,
@@ -25,6 +26,7 @@ NGINX_LOG_NAME = r"^nginx-access-ui\.log-(\d{8})\.*(gz|log|txt)*$"
 TMPL_LOG_STRING = regex.compile(
         r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} .* \"(?:GET|POST|DELETE|PUT|HEAD|OPTIONS|-) (.*) HTTP/\d.\d\".* ("
         r"\d+\.\d*)$")
+
 
 def parse_args():
     """
@@ -70,7 +72,7 @@ def read_config_file(path_to_config: str) -> json:
     try:
         with open(path_to_config, 'rt') as f_conf:
             config_from_file = json.load(f_conf)
-    except Exception as e:
+    except JSONDecodeError as e:
         logging.exception(f"Error decoding json config file: {path_to_config}", e)
         raise
     return DEFAULT_CONFIG | config_from_file
@@ -126,21 +128,25 @@ def logfile_parse(logfile: namedtuple("LogFile", "path, date, ext"), tmpl, error
     :return: str
     """
     total, errors = 0, 0
-    with gzip.open(logfile.path, 'rt') if logfile.ext == "gz" else open(logfile.path, 'rt') as log:
-        for line in log:
-            total += 1
-            try:
-                url, time = regex.findall(tmpl, line)[0]
-                url = str(url)
-                time = float(time)
-                yield url, time
-            except IndexError:
-                errors += 1
+    opener = gzip.open(logfile.path, 'rt') if logfile.ext == "gz" else open(logfile.path, 'rt')
+    with opener as log:
+        try:
+            for line in log:
+                total += 1
+                try:
+                    url, time = regex.findall(tmpl, line)[0]
+                    url = str(url)
+                    time = float(time)
+                    yield url, time
+                except IndexError:
+                    errors += 1
+        except (FileNotFoundError, PermissionError, OSError):
+            logging.error(f"Error opening file {logfile.path}")
 
     logging.info(f"{total} lines parsed with {errors} errors")
 
     if total > 0 and errors / total > error_limit:
-        raise Exception(f"Errors limit {error_limit} exceeded!")
+        raise Warning(f"Errors limit {error_limit} exceeded!")
 
 
 def generate_report(logfile_data, report_size: int) -> list:
@@ -208,17 +214,19 @@ def main():
     logging_config(work_config["LOG_FILE"])
     logging.info(f"Starting Log Analyzer. Work_config is {work_config}")
     last_log = find_last_nginx_log(work_config["LOG_DIR"], NGINX_LOG_NAME)
-    new_rep_name = None
 
-    if last_log:
+    if not last_log:
+        logging.info(f"nginx log file not found in directory {work_config["LOG_DIR"]}")
+    else:
         new_rep_name = os.path.join(work_config["REPORT_DIR"], last_log.date.strftime("report-%Y.%m.%d.html"))
 
-    if not os.path.exists(new_rep_name):
-        print(f"generating report {new_rep_name}...")
-        url_stat = generate_report(logfile_parse(last_log), TMPL_LOG_STRING, work_config["REPORT_SIZE"])
-        make_report(url_stat, new_rep_name, work_config["REPORT_DIR"])
-    else:
-        logging.info(f"report {new_rep_name} already exists")
+        if os.path.exists(new_rep_name):
+            logging.info(f"report {new_rep_name} already exists")
+            print(f"report {new_rep_name} already exists")
+        else:
+            print(f"generating report {new_rep_name}...")
+            url_stat = generate_report(logfile_parse(last_log, TMPL_LOG_STRING), work_config["REPORT_SIZE"])
+            make_report(url_stat, new_rep_name, work_config["REPORT_DIR"])
 
 
 if __name__ == "__main__":
