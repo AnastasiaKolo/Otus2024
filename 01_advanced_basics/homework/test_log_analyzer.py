@@ -1,6 +1,7 @@
 """Тесты для модуля log_analyzer.py"""
 
 import datetime
+import os
 import unittest
 
 from collections import namedtuple
@@ -56,7 +57,7 @@ class MyTestCase(unittest.TestCase):
                 mocked_isdir.return_value = True
                 actual = log_analyzer.find_last_nginx_log('logs', NGINX_LOG_NAME)
                 fname = namedtuple("LogFile", "path, date, ext")
-                expected = fname(path="logs\\nginx-access-ui.log-20230329.gz",
+                expected = fname(path=os.path.join("logs", "nginx-access-ui.log-20230329.gz"),
                                  date=datetime.date(2023, 3, 29),
                                  ext='gz')
 
