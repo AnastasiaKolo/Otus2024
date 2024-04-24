@@ -25,7 +25,7 @@ class MyTestCase(unittest.TestCase):
 
         with patched_file as mock_file:
             actual = log_analyzer.read_config_file(mock_file_path)
-            mock_file.assert_called_once_with(mock_file_path, 'rt')
+            mock_file.assert_called_once_with(mock_file_path, 'rt', encoding='utf-8')
 
         expected = {
             "REPORT_SIZE": 500,
