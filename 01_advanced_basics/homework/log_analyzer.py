@@ -74,7 +74,7 @@ def read_config_file(path_to_config: str) -> json:
     @return: dict возвращает конфиг
     """
     try:
-        with open(path_to_config, 'rt') as f_conf:
+        with open(path_to_config, 'rt', encoding='utf-8') as f_conf:
             config_from_file = json.load(f_conf)
     except JSONDecodeError as e:
         logging.exception(f"Error decoding json config file: {path_to_config}", e)
