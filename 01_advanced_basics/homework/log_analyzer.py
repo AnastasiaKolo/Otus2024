@@ -133,8 +133,9 @@ def logfile_parse(logfile: namedtuple("LogFile", "path, date, ext"), tmpl, error
     :return: str
     """
     total, errors = 0, 0
+    # pylint: disable=consider-using-with
     opener = gzip.open(logfile.path, 'rt', encoding='utf-8') if logfile.ext == "gz" \
-        else open(logfile.path, 'rt', encoding='utf-8')  # pylint: disable=consider-using-with
+        else open(logfile.path, 'rt', encoding='utf-8')
     with opener as log:
         try:
             for line in log:

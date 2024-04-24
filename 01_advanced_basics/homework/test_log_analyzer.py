@@ -18,6 +18,8 @@ class MyTestCase(unittest.TestCase):
         """Тестирует функцию в которой читается конфиг из файла и объединяется с дефолтным"""
         mock_file_path = "mock/file/path"
         mock_file_content = '{"REPORT_SIZE": 500, "LOG_DIR": "./logs_test"}'
+        # pylint: disable=format-string-without-interpolation
+        # pylint: disable=consider-using-f-string
         patched_file = patch('log_analyzer.open'.format(__name__, 'rt'),
                              new=mock_open(read_data=mock_file_content))
 
