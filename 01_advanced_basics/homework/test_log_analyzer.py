@@ -11,8 +11,10 @@ from log_analyzer import NGINX_LOG_NAME
 
 
 class MyTestCase(unittest.TestCase):
+    """Тесты отдельных функций скрипта"""
 
     def test_read_config_file(self):
+        """Тестирует функцию в которой читается конфиг из файла и объединяется с дефолтным"""
         mock_file_path = "mock/file/path"
         mock_file_content = '{"REPORT_SIZE": 500, "LOG_DIR": "./logs_test"}'
         patched_file = patch('log_analyzer.open'.format(__name__, 'rt'),
@@ -33,11 +35,13 @@ class MyTestCase(unittest.TestCase):
         self.assertEqual(expected, actual)
 
     def test_validate_date(self):
+        """Тестирует функцию проверки даты в текстовом формате"""
         self.assertEqual(log_analyzer.validate_date("20230303"), datetime.date(2023, 3, 3))
         self.assertEqual(log_analyzer.validate_date("20233303"), None)
         self.assertNotEqual(log_analyzer.validate_date("20233303"), datetime.date(2023, 3, 2))
 
     def test_find_last_nginx_log(self):
+        """Тестирует функцию нахождения последнего по дате лога, проверяя что дата в имени файла корректная"""
         with patch('os.listdir') as mocked_listdir:
             with patch('os.path.isdir') as mocked_isdir:
                 mocked_listdir.return_value = ['nginx-access-ui.log-20230303',

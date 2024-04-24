@@ -9,12 +9,13 @@ import gzip
 import json
 import logging
 import os
-import regex
 
 from collections import namedtuple, defaultdict
 from statistics import median
 from string import Template
 from json.decoder import JSONDecodeError
+
+import regex
 
 DEFAULT_CONFIG = {
     "REPORT_SIZE": 1000,
