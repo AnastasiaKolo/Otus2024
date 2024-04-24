@@ -53,7 +53,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='nginx log analyzer')
     parser.add_argument("--config", "-f", dest="config", default="./log_analyzer.conf",
                         help="path to config file", metavar="FILE",
-                        type=lambda x: is_valid_file(x))
+                        type=lambda x: is_valid_file(x))  # pylint: disable=unnecessary-lambda
     args = parser.parse_args()
     return args.config
 
@@ -134,7 +134,7 @@ def logfile_parse(logfile: namedtuple("LogFile", "path, date, ext"), tmpl, error
     """
     total, errors = 0, 0
     opener = gzip.open(logfile.path, 'rt', encoding='utf-8') if logfile.ext == "gz" \
-        else open(logfile.path, 'rt', encoding='utf-8')
+        else open(logfile.path, 'rt', encoding='utf-8')  # pylint: disable=consider-using-with
     with opener as log:
         try:
             for line in log:
@@ -241,5 +241,5 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         logging.error("User requested cancel of current operation!")
-    except:
+    except:  # pylint: disable=bare-except
         logging.exception("Exception occurred!")
