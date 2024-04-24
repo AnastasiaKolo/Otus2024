@@ -2,10 +2,11 @@
 
 import datetime
 import unittest
-import log_analyzer
 
 from collections import namedtuple
 from unittest.mock import patch, mock_open
+
+import log_analyzer
 
 from log_analyzer import NGINX_LOG_NAME
 
@@ -41,7 +42,10 @@ class MyTestCase(unittest.TestCase):
         self.assertNotEqual(log_analyzer.validate_date("20233303"), datetime.date(2023, 3, 2))
 
     def test_find_last_nginx_log(self):
-        """Тестирует функцию нахождения последнего по дате лога, проверяя что дата в имени файла корректная"""
+        """
+        Тестирует функцию нахождения последнего по дате лога,
+        проверяя что дата в имени файла корректная
+        """
         with patch('os.listdir') as mocked_listdir:
             with patch('os.path.isdir') as mocked_isdir:
                 mocked_listdir.return_value = ['nginx-access-ui.log-20230303',
