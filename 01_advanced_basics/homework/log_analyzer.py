@@ -76,8 +76,8 @@ def read_config_file(path_to_config: str) -> json:
     try:
         with open(path_to_config, 'rt', encoding='utf-8') as f_conf:
             config_from_file = json.load(f_conf)
-    except JSONDecodeError as e:
-        logging.exception(f"Error decoding json config file: {path_to_config}", e)
+    except JSONDecodeError:
+        logging.exception("Error decoding json config file: %s", path_to_config)
         raise
     return DEFAULT_CONFIG | config_from_file
 
@@ -114,11 +114,11 @@ def find_last_nginx_log(path: str, reg_name: str) -> namedtuple("LogFile", "path
                     max_date = dt
                     last_logfile = fname(os.path.join(path, filename), dt, str(get_name[0][1]))
         if last_logfile:
-            logging.info(f"last log file is {last_logfile.path}")
+            logging.info("last log file is %s", last_logfile.path)
         else:
-            logging.error(f"log files not found in {path}")
+            logging.error("log files not found in %s", path)
     else:
-        logging.error(f"log file directory not found: {path}")
+        logging.error("log file directory not found: %s", path)
     return last_logfile
 
 
@@ -145,9 +145,9 @@ def logfile_parse(logfile: namedtuple("LogFile", "path, date, ext"), tmpl, error
                 except IndexError:
                     errors += 1
         except (FileNotFoundError, PermissionError, OSError):
-            logging.error(f"Error opening file {logfile.path}")
+            logging.error("Error opening file %s", logfile.path)
 
-    logging.info(f"{total} lines parsed with {errors} errors")
+    logging.info("%s lines parsed with %s errors", total, errors)
 
     if total > 0 and errors / total > error_limit:
         raise Warning(f"Errors limit {error_limit} exceeded!")
@@ -206,7 +206,7 @@ def make_report(stat, report_file_name, report_dir):
     tmpl_sub = dict(table_json=json.dumps(stat))
     with open(report_file_name, "wt") as file:
         file.write(tmpl.safe_substitute(tmpl_sub))
-        logging.info(f"Report saved to {report_file_name}")
+        logging.info("Report saved to %s", report_file_name)
 
 
 def main():
@@ -216,17 +216,17 @@ def main():
     """
     work_config = read_config_file(parse_args())
     logging_config(work_config["LOG_FILE"])
-    logging.info(f"Starting Log Analyzer. Work_config is {work_config}")
+    logging.info("Starting Log Analyzer. Work_config is %s", work_config)
     last_log = find_last_nginx_log(work_config["LOG_DIR"], NGINX_LOG_NAME)
 
     if not last_log:
-        logging.info(f"nginx log file not found in directory {work_config['LOG_DIR']}")
+        logging.info("nginx log file not found in directory %s", work_config["LOG_DIR"])
     else:
         new_rep_name = os.path.join(work_config["REPORT_DIR"],
                                     last_log.date.strftime("report-%Y.%m.%d.html"))
 
         if os.path.exists(new_rep_name):
-            logging.info(f"report {new_rep_name} already exists")
+            logging.info("report %s already exists", new_rep_name)
             print(f"report {new_rep_name} already exists")
         else:
             print(f"generating report {new_rep_name}...")
