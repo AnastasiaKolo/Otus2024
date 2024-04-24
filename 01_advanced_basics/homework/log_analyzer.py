@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
+"""Программа для расчета статистики по логам nginx"""
+
 import argparse
 import datetime
 import gzip
@@ -24,7 +27,8 @@ DEFAULT_CONFIG = {
 NGINX_LOG_NAME = r"^nginx-access-ui\.log-(\d{8})\.*(gz|log|txt)*$"
 
 TMPL_LOG_STRING = regex.compile(
-        r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} .* \"(?:GET|POST|DELETE|PUT|HEAD|OPTIONS|-) (.*) HTTP/\d.\d\".* ("
+        r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} .* \"(?:GET|POST|DELETE|PUT|HEAD|OPTIONS|-) "
+        r"(.*) HTTP/\d.\d\".* ("
         r"\d+\.\d*)$")
 
 
@@ -218,14 +222,16 @@ def main():
     if not last_log:
         logging.info(f"nginx log file not found in directory {work_config['LOG_DIR']}")
     else:
-        new_rep_name = os.path.join(work_config["REPORT_DIR"], last_log.date.strftime("report-%Y.%m.%d.html"))
+        new_rep_name = os.path.join(work_config["REPORT_DIR"],
+                                    last_log.date.strftime("report-%Y.%m.%d.html"))
 
         if os.path.exists(new_rep_name):
             logging.info(f"report {new_rep_name} already exists")
             print(f"report {new_rep_name} already exists")
         else:
             print(f"generating report {new_rep_name}...")
-            url_stat = generate_report(logfile_parse(last_log, TMPL_LOG_STRING), work_config["REPORT_SIZE"])
+            url_stat = generate_report(logfile_parse(last_log, TMPL_LOG_STRING),
+                                       work_config["REPORT_SIZE"])
             make_report(url_stat, new_rep_name, work_config["REPORT_DIR"])
 
 
