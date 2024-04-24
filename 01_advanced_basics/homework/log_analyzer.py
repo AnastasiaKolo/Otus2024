@@ -132,7 +132,8 @@ def logfile_parse(logfile: namedtuple("LogFile", "path, date, ext"), tmpl, error
     :return: str
     """
     total, errors = 0, 0
-    opener = gzip.open(logfile.path, 'rt') if logfile.ext == "gz" else open(logfile.path, 'rt')
+    opener = gzip.open(logfile.path, 'rt', encoding='utf-8') if logfile.ext == "gz" \
+        else open(logfile.path, 'rt', encoding='utf-8')
     with opener as log:
         try:
             for line in log:
@@ -182,8 +183,7 @@ def generate_report(logfile_data, report_size: int) -> list:
             })
     url_stat.sort(key=lambda x: x['time_sum'], reverse=True)
 
-    if len(url_stat) < report_size:
-        report_size = len(url_stat)
+    report_size = min(report_size, len(url_stat))
 
     return url_stat[0:report_size]
 
@@ -200,11 +200,11 @@ def make_report(stat, report_file_name, report_dir):
     if not os.path.exists(report_dir):
         os.mkdir(report_dir)
 
-    with open(template_path, "rt") as file:
+    with open(template_path, "rt", encoding='utf-8') as file:
         tmpl = Template(file.read())
 
-    tmpl_sub = dict(table_json=json.dumps(stat))
-    with open(report_file_name, "wt") as file:
+    tmpl_sub = {"table_json": json.dumps(stat)}
+    with open(report_file_name, "wt", encoding='utf-8') as file:
         file.write(tmpl.safe_substitute(tmpl_sub))
         logging.info("Report saved to %s", report_file_name)
 
