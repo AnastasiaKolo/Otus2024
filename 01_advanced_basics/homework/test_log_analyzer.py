@@ -1,3 +1,5 @@
+"""Тесты для модуля log_analyzer.py"""
+
 import datetime
 import unittest
 import log_analyzer
@@ -5,7 +7,7 @@ import log_analyzer
 from collections import namedtuple
 from unittest.mock import patch, mock_open
 
-from log_analyzer import DEFAULT_CONFIG, NGINX_LOG_NAME, TMPL_LOG_STRING
+from log_analyzer import NGINX_LOG_NAME
 
 
 class MyTestCase(unittest.TestCase):
@@ -13,8 +15,10 @@ class MyTestCase(unittest.TestCase):
     def test_read_config_file(self):
         mock_file_path = "mock/file/path"
         mock_file_content = '{"REPORT_SIZE": 500, "LOG_DIR": "./logs_test"}'
+        patched_file = patch('log_analyzer.open'.format(__name__, 'rt'),
+                             new=mock_open(read_data=mock_file_content))
 
-        with patch('log_analyzer.open'.format(__name__, 'rt'), new=mock_open(read_data=mock_file_content)) as mock_file:
+        with patched_file as mock_file:
             actual = log_analyzer.read_config_file(mock_file_path)
             mock_file.assert_called_once_with(mock_file_path, 'rt')
 

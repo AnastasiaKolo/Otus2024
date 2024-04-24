@@ -216,7 +216,7 @@ def main():
     last_log = find_last_nginx_log(work_config["LOG_DIR"], NGINX_LOG_NAME)
 
     if not last_log:
-        logging.info(f"nginx log file not found in directory {work_config["LOG_DIR"]}")
+        logging.info(f"nginx log file not found in directory {work_config['LOG_DIR']}")
     else:
         new_rep_name = os.path.join(work_config["REPORT_DIR"], last_log.date.strftime("report-%Y.%m.%d.html"))
 
