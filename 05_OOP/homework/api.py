@@ -201,6 +201,18 @@ class OnlineScoreRequest(BaseRequest):
     birthday = BirthDayField(required=False, nullable=True)
     gender = GenderField(required=False, nullable=True)
 
+    def is_valid(self):
+        """ Аргументы валидны, если валидны все поля по отдельности
+        и если присутствует хоть одна пара
+        phone-email,
+        first name-last name,
+        gender-birthday с непустыми значениями """
+        if any([self.phone and self.email,
+                self.first_name and self.last_name,
+                self.gender and self.birthday]):
+            return True
+        return False
+
 
 class MethodRequest(BaseRequest):
     """ Основной запрос метода """
@@ -232,6 +244,8 @@ class MethodRequest(BaseRequest):
         """ Вызов одного из методов скоринга """
         if self.method == "online_score":
             online_score = OnlineScoreRequest(src_dict=self.arguments)
+            if not online_score.is_valid():
+                raise ValueError(f"Invalid online_score request arguments")
             score = 42 if self.is_admin else get_score(**online_score.__dict__, store=store)
             context["has"] = online_score.non_empty_fields_lst
             return {"score": score}

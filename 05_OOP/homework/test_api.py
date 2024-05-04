@@ -7,7 +7,6 @@ import unittest
 import api
 
 
-#@unittest.skip("temporary does not work")
 class RequestsTestCase(unittest.TestCase):
     """ Тесты запросов к API """
 
@@ -65,11 +64,11 @@ class RequestsTestCase(unittest.TestCase):
 
     def test_admin_request(self):
         """ Тестируем запрос с админским логином """
-        arguments = {"phone": "",
+        arguments = {"phone": "71234567890",
                      "email": "",
                      "first_name": "",
                      "last_name": "",
-                     "birthday": "",
+                     "birthday": "01.02.2022",
                      "gender": 1}
         request = {"login": api.ADMIN_LOGIN,
                    "method": "online_score",
@@ -78,7 +77,7 @@ class RequestsTestCase(unittest.TestCase):
         response, code = self.get_response(request)
         self.assertEqual(api.OK, code)
         self.assertEqual(response["score"], 42)
-        self.assertEqual(self.context["has"], ["gender"])
+        self.assertEqual(self.context["has"], ["phone", "birthday", "gender"])
 
     def test_clients_interests_request(self):
         """ Тестируем запрос интересов клиентов """
@@ -91,6 +90,7 @@ class RequestsTestCase(unittest.TestCase):
         _, code = self.get_response(request)
         self.assertEqual(api.OK, code)
         self.assertEqual(self.context["nclients"], 5)
+
 
 # pylint: disable=invalid-name
 class FieldClassesTestCase(unittest.TestCase):
