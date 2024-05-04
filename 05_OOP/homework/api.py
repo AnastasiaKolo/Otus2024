@@ -245,7 +245,7 @@ class MethodRequest(BaseRequest):
         if self.method == "online_score":
             online_score = OnlineScoreRequest(src_dict=self.arguments)
             if not online_score.is_valid():
-                raise ValueError(f"Invalid online_score request arguments")
+                raise ValueError("Invalid online_score request arguments")
             score = 42 if self.is_admin else get_score(**online_score.__dict__, store=store)
             context["has"] = online_score.non_empty_fields_lst
             return {"score": score}
