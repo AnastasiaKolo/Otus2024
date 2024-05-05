@@ -14,6 +14,7 @@ def cases(testcases):
         @functools.wraps(f)
         def wrapper(*args):
             for c in testcases:
+                # tuple в случае нескольких аргументов функции
                 new_args = args + (c if isinstance(c, tuple) else (c,))
                 f(*new_args)
         return wrapper
@@ -62,24 +63,23 @@ class RequestsTestCase(unittest.TestCase):
         _, code = self.get_response(request)
         self.assertEqual(api.INVALID_REQUEST, code)
 
-    @cases([{"phone": "79001234567",
-             "birthday": "01.01.2023",
-             "gender": 1}])
-    def test_online_score_request(self, arguments):
+    @cases([({"phone": "79001234567", "birthday": "01.01.2023", "gender": 1},
+             3.0, ["phone", "birthday", "gender"]),
+            ({"first_name": "Jack", "last_name": "Smith", "gender": 1},
+             0.5, ["first_name", "last_name", "gender"]),
+            ])
+    def test_online_score_request(self, arguments, expected_score, expected_has):
         """ Тестируем корректный запрос онлайн скоринга """
         request = {"method": "online_score",
                    "arguments": arguments}
         self.add_auth(request, "user")
         response, code = self.get_response(request)
-        # print("test_online_score_request", request, response, code)
         self.assertEqual(api.OK, code)
-        self.assertEqual(type(response["score"]), float)
+        self.assertEqual(response["score"], expected_score)
         self.assertTrue(response["score"] > 0)
-        self.assertEqual(self.context["has"], ["phone", "birthday", "gender"])
+        self.assertEqual(self.context["has"], expected_has)
 
-    @cases([{"phone": "71234567890",
-                       "birthday": "01.02.2022",
-                       "gender": 1}])
+    @cases([{"phone": "71234567890", "birthday": "01.02.2022", "gender": 1}])
     def test_admin_request(self, arguments):
         """ Тестируем корректный запрос онлайн-скоринга с админским логином """
         request = {"method": "online_score",
