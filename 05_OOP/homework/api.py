@@ -165,15 +165,15 @@ class BaseRequest:
         class_fields = self.__class__.__dict__
         for key, field in class_fields.items():
 
-            if not isinstance(field, BaseField):
-                continue
-            if key not in src_dict:
-                if field.required:
-                    raise ValueError("Missed required field: " + key)
-                self.__dict__[key] = field
-                continue
-            # в итоге, поля запросов хранятся в словаре экземпляра этого класса
-            self.__dict__[key] = self.__class__.__dict__[key].validate(src_dict[key])
+            if isinstance(field, BaseField):
+                # поля запросов сохраняются в словаре экземпляра этого класса
+                if key not in src_dict:
+                    if field.required:
+                        raise ValueError(f"Required field {key} not found in "
+                                         f"{self.__class__.__name__}")
+                    self.__dict__[key] = None
+                else:
+                    self.__dict__[key] = self.__class__.__dict__[key].validate(src_dict[key])
 
     def __repr__(self) -> str:
         attrs_list: list[str] = [f"{key}: {value}" for key, value in self.__dict__.items()]
