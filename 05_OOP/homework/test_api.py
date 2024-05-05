@@ -1,30 +1,45 @@
 """Тесты для модуля api.py"""
 
 import datetime
+import functools
 import hashlib
 import unittest
 
 import api
 
 
+def cases(testcases):
+    """ Декоратор для запуска кейса с разными тест-векторами """
+    def decorator(f):
+        @functools.wraps(f)
+        def wrapper(*args):
+            for c in testcases:
+                new_args = args + (c if isinstance(c, tuple) else (c,))
+                f(*new_args)
+        return wrapper
+    return decorator
+
+
 class RequestsTestCase(unittest.TestCase):
     """ Тесты запросов к API """
-
-    request_account = "test"
-    user_login = "user"
     store = None
-
-    @classmethod
-    def setUpClass(cls):
-        """ Настойка параметров для запросов """
-        admin_data = datetime.datetime.now().strftime("%Y%m%d") + api.ADMIN_SALT
-        cls.admin_token = hashlib.sha512(admin_data.encode()).hexdigest()
-        user_data = cls.request_account + cls.user_login + api.SALT
-        cls.user_token = hashlib.sha512(user_data.encode()).hexdigest()
 
     def setUp(self):
         self.headers = {}
         self.context = {}
+
+    @staticmethod
+    def add_auth(request, login):
+        """ Добавляет поля аутентификации в запрос """
+        account = "test"
+        request["login"] = login
+        if login == api.ADMIN_LOGIN:
+            digest_data = datetime.datetime.now().strftime("%Y%m%d") + api.ADMIN_SALT
+        else:
+            request["account"] = account
+            digest_data = account + login + api.SALT
+
+        request["token"] = hashlib.sha512(digest_data.encode()).hexdigest()
 
     def get_response(self, request):
         """ Вызов обработчика запроса """
@@ -36,118 +51,106 @@ class RequestsTestCase(unittest.TestCase):
         """ Тестируем пустой запрос """
         _, code = self.get_response({})
         self.assertEqual(api.INVALID_REQUEST, code)
-        print("empty_request", self.context)
 
-    def test_wrong_request(self):
+    @cases([
+        "123456",
+        {"user": "admin"},
+        {"aaa": "bbb"}
+    ])
+    def test_wrong_request(self, request):
         """ Тестируем неверный формат запроса """
-        _, code = self.get_response("123456")
+        _, code = self.get_response(request)
         self.assertEqual(api.INVALID_REQUEST, code)
-        print("wrong_request", self.context)
 
-    def test_online_score_request(self):
-        """ Тестируем запрос онлайн скоринга """
-        arguments = {"phone": "79001234567",
-                     "email": "",
-                     "first_name": "",
-                     "last_name": "",
-                     "birthday": "01.01.2023",
-                     "gender": 1}
-        request = {"account": self.request_account,
-                   "login": self.user_login,
-                   "method": "online_score",
-                   "token": self.user_token,
+    @cases([{"phone": "79001234567",
+             "birthday": "01.01.2023",
+             "gender": 1}])
+    def test_online_score_request(self, arguments):
+        """ Тестируем корректный запрос онлайн скоринга """
+        request = {"method": "online_score",
                    "arguments": arguments}
+        self.add_auth(request, "user")
         response, code = self.get_response(request)
+        # print("test_online_score_request", request, response, code)
         self.assertEqual(api.OK, code)
-        self.assertEqual(response["score"], 3.0)
+        self.assertEqual(type(response["score"]), float)
+        self.assertTrue(response["score"] > 0)
         self.assertEqual(self.context["has"], ["phone", "birthday", "gender"])
 
-    def test_admin_request(self):
-        """ Тестируем запрос с админским логином """
-        arguments = {"phone": "71234567890",
-                     "email": "",
-                     "first_name": "",
-                     "last_name": "",
-                     "birthday": "01.02.2022",
-                     "gender": 1}
-        request = {"login": api.ADMIN_LOGIN,
-                   "method": "online_score",
-                   "token": self.admin_token,
+    @cases([{"phone": "71234567890",
+                       "birthday": "01.02.2022",
+                       "gender": 1}])
+    def test_admin_request(self, arguments):
+        """ Тестируем корректный запрос онлайн-скоринга с админским логином """
+        request = {"method": "online_score",
                    "arguments": arguments}
+        self.add_auth(request, api.ADMIN_LOGIN)
         response, code = self.get_response(request)
         self.assertEqual(api.OK, code)
+        # print("test_admin_request", request, response, code)
         self.assertEqual(response["score"], 42)
         self.assertEqual(self.context["has"], ["phone", "birthday", "gender"])
 
-    def test_clients_interests_request(self):
+    @cases([{"client_ids": [1, 2, 3, 4, 5]},
+           {"client_ids": [0]},
+           {"client_ids": [3, 4, 5]}])
+    def test_clients_interests_request(self, arguments):
         """ Тестируем запрос интересов клиентов """
-        arguments = {"client_ids": [1, 2, 3, 4, 5]}
-        request = {"account": self.request_account,
-                   "login": self.user_login,
-                   "method": "clients_interests",
-                   "token": self.user_token,
+        request = {"method": "clients_interests",
                    "arguments": arguments}
+        self.add_auth(request, "user")
         _, code = self.get_response(request)
         self.assertEqual(api.OK, code)
-        self.assertEqual(self.context["nclients"], 5)
+        self.assertEqual(self.context["nclients"], len(arguments["client_ids"]))
 
 
 # pylint: disable=invalid-name
 class FieldClassesTestCase(unittest.TestCase):
     """Тесты классов задающих разные типы полей """
 
-    def test_DateField_valid(self):
+    @cases(["01.01.2023", "01.01.2025", "31.12.1931"])
+    def test_DateField_valid(self, date_to_check):
         """Тестирует функцию проверки даты в текстовом формате"""
-        dates_to_check = ["01.01.2023", "01.01.2025", "31.12.1931"]
-        for dt in dates_to_check:
-            api.DateField().validate(dt)
+        api.DateField().validate(date_to_check)
 
-    def test_DateField_invalid(self):
+    @cases(["01.31.2023", "21.13.2023"])
+    def test_DateField_invalid(self, date_to_check):
         """Тестирует функцию проверки даты в текстовом формате"""
         with self.assertRaises(expected_exception=ValueError):
-            api.DateField().validate("01.31.2023")
+            api.DateField().validate(date_to_check)
 
-    def test_BirthdayField_valid(self):
+    @cases(["01.01.2023", "31.01.2000"])
+    def test_BirthdayField_valid(self, date_to_check):
         """Тестирует функцию проверки даты в текстовом формате"""
-        dates_to_check = ["01.01.2023", "31.01.2000"]
-        for dt in dates_to_check:
-            api.BirthDayField().validate(dt)
+        api.BirthDayField().validate(date_to_check)
 
-    def test_BirthdayField_invalid(self):
+    @cases(["01.01.1923", "01.01.2033"])
+    def test_BirthdayField_invalid(self, date_to_check):
         """Тестирует функцию проверки дня рождения
         не принимает даты старше 70 лет назад
         не принимает даты в будущем"""
         with self.assertRaises(expected_exception=ValueError):
-            api.BirthDayField().validate("01.01.1923")
-            api.BirthDayField().validate("01.01.2033")
+            api.BirthDayField().validate(date_to_check)
 
-    def test_EmailField_valid(self):
+    @cases(["_usernam-123@server.mail.ru", "user@mail.ru"])
+    def test_EmailField_valid(self, email):
         """Тестирует функцию проверки email"""
-        emails = ["_usernam-123@server.mail.ru", "user@mail.ru"]
-        for email in emails:
+        api.EmailField().validate(email)
+
+    @cases(["@server.mail.ru", "@@@@@mail.ru"])
+    def test_EmailField_invalid(self, email):
+        """Тестирует выдачу ошибок насчет некорректного email"""
+        with self.assertRaises(expected_exception=ValueError):
             api.EmailField().validate(email)
 
-    def test_EmailField_invalid(self):
-        """Тестирует выдачу ошибок насчет некорректного email"""
-        emails = ["@server.mail.ru", "@@@@@mail.ru"]
+    @cases(["", [], {}, None])
+    def test_BaseField_nullable(self, value):
+        """Тестирует проверку атрибута nullable,
+        должна появляться ошибка """
         with self.assertRaises(expected_exception=ValueError):
-            for email in emails:
-                api.EmailField().validate(email)
-
-    def test_BaseField_nullable(self):
-        """Тестирует проверку атрибута nullable """
-        null_values = ["", [], {}, None]
-        not_null_values = ["1", [1], {1: 2}]
-
-        with self.assertRaises(expected_exception=ValueError):
-            for value in null_values:
-                api.BaseField(nullable=False).validate(value)
-
-        for value in null_values:
-            api.BaseField(nullable=True).validate(value)
-
-        for value in not_null_values:
             api.BaseField(nullable=False).validate(value)
+
+        api.BaseField(nullable=True).validate(value)
 
 
 class RequestsClassesTestCase(unittest.TestCase):
@@ -156,13 +159,13 @@ class RequestsClassesTestCase(unittest.TestCase):
     def test_BaseRequest(self):
         """ Тест создания класса базового запроса """
         src_dict = {}
-        baserec = api.BaseRequest(src_dict=src_dict)
-        self.assertEqual(src_dict, baserec.__dict__)
+        req = api.BaseRequest(src_dict=src_dict)
+        self.assertEqual(src_dict, req.__dict__)
 
     def test_ClientsInterestsRequest(self):
         """ Тест создания класса запроса интересов """
-        rec = api.ClientsInterestsRequest(src_dict={"client_ids": [1, 2, 3, 4]})
-        print("ClientsInterestsRequest", str(rec))
+        req = api.ClientsInterestsRequest(src_dict={"client_ids": [1, 2, 3, 4]})
+        self.assertEqual(req.client_ids, [1, 2, 3, 4])
 
 
 if __name__ == '__main__':

@@ -78,6 +78,7 @@ class CharField(BaseField):
 
         return value
 
+
 class EmailField(CharField):
     """ Строка, в которой есть @, опционально, может быть пустым """
     __template__ = r"^[a-zA-Z0-9\.\-\_]+@[a-zA-Z0-9\.\-\_]+\.[a-zA-Z0-9]+$"
@@ -120,6 +121,7 @@ class BirthDayField(DateField):
 
         return dt
 
+
 class GenderField(BaseField):
     """ Число 0, 1 или 2, опционально, может быть пустым """
     def validate(self, value):
@@ -130,6 +132,7 @@ class GenderField(BaseField):
             raise ValueError(f"Number 0, 1 or 2 expected in {self.__class__.__name__}")
 
         return value
+
 
 class ClientIDsField(BaseField):
     """ Массив чисел, обязательно, не пустое """
@@ -165,15 +168,15 @@ class BaseRequest:
         class_fields = self.__class__.__dict__
         for key, field in class_fields.items():
 
-            if not isinstance(field, BaseField):
-                continue
-            if key not in src_dict:
-                if field.required:
-                    raise ValueError("Missed required field: " + key)
-                self.__dict__[key] = field
-                continue
-            # в итоге, поля запросов хранятся в словаре экземпляра этого класса
-            self.__dict__[key] = self.__class__.__dict__[key].validate(src_dict[key])
+            if isinstance(field, BaseField):
+                # поля запросов сохраняются в словаре экземпляра этого класса
+                if key not in src_dict:
+                    if field.required:
+                        raise ValueError(f"Required field {key} not found in "
+                                         f"{self.__class__.__name__}")
+                    self.__dict__[key] = None
+                else:
+                    self.__dict__[key] = self.__class__.__dict__[key].validate(src_dict[key])
 
     def __repr__(self) -> str:
         attrs_list: list[str] = [f"{key}: {value}" for key, value in self.__dict__.items()]
@@ -183,6 +186,7 @@ class BaseRequest:
     @property
     def non_empty_fields_lst(self) -> typing.List[str]:
         """ Список непустых полей объекта """
+        # print("non_empty_fields_lst", self.__dict__)
         return [key for key, value in self.__dict__.items() if value]
 
 
