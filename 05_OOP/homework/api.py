@@ -17,6 +17,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from scoring import get_score, get_interests
+from store import KVStore
 
 SALT = "Otus"
 ADMIN_LOGIN = "admin"
@@ -282,7 +283,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
     router = {
         "method": method_handler
     }
-    store = None
+    store = KVStore()
 
     def get_request_id(self, headers):
         """ get_request_id """
