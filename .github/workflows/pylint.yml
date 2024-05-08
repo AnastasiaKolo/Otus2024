@@ -25,3 +25,4 @@ jobs:
     - name: Run unit tests
       run: |
         python ./01_advanced_basics/homework/test_log_analyzer.py
+        python ./05_OOP/homework/test_api.py
