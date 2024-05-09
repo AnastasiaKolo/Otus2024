@@ -13,6 +13,7 @@ class KVStore:
         self.connect()
 
     def connect(self):
+        """ Подключение к хранилищу """
         try:
             self.connection = tarantool.connect(self._host, self._port)
             self.space = self.connection.space(self._spacename)
@@ -22,15 +23,19 @@ class KVStore:
             print(f"There's no space with name '{self._spacename}'")
 
     def cache_set(self, key, value, time):
+        """ Запись в кеш """
         pass
 
     def cache_get(self, key):
+        """ Запрос из кеша """
         pass
 
     def get(self, key):
+        """ Запрос из хранилища """
         pass
 
     def set(self, key, value):
+        """ Запись в хранилище """
         pass
 
 
@@ -57,6 +62,3 @@ if __name__ == '__main__':
     #
     # s = tester.select(4)
     # print(s)
-
-
-

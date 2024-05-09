@@ -1,7 +1,9 @@
 """ Расчет скоринга """
 
 import hashlib
+import json
 
+# pylint: disable=too-many-arguments
 def get_score(store, phone, email, birthday=None, gender=None, first_name=None, last_name=None):
     """ Пытаемся получить скоринг из кеша,
     если там нет, то расчет скоринга
@@ -36,5 +38,5 @@ def get_interests(store, cid):
     # interests = ["cars", "pets", "travel", "hi-tech", "sport", "music", "books", "tv", "cinema",
     #              "geek", "otus"]
     # return random.sample(interests, 2)
-    r = store.get("i:%s" % cid)
+    r = store.get(f"i:{cid}")
     return json.loads(r) if r else []
