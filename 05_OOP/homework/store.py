@@ -64,9 +64,9 @@ class KVStore:
     def get(self, key):
         """ Запрос из хранилища """
         print(f"!!!!!store get request, key {key}, type {type(key)}")
-        # responce: tarantool.response.Response = self.space.select(key)
-        # if responce.rowcount == 1:
-        #     return responce.data[0][1]
+        responce: tarantool.response.Response = self.space.select(key)
+        if responce.rowcount == 1:
+            return responce.data[0][1]
         return None
 
     def set(self, key, value):
@@ -85,18 +85,4 @@ def main():
 
 if __name__ == '__main__':
     main()
-    # connection = tarantool.connect('localhost', 3303)
-    # tester = connection.space('tester')
-    #
-    # # tester.insert((4, 'ABBA', 1972))
-    # s = tester.select(4)
-    # p = tester.select('Scorpions', index=1)
-    # print(s, p)
-    #
-    # s = tester.select()
-    # print(s)
-    #
-    # tester.update(4, [('=', 1, 'New group'), ('+', 2, 2)])
-    #
-    # s = tester.select(4)
-    # print(s)
+
