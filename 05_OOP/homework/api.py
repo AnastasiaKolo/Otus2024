@@ -247,6 +247,7 @@ class MethodRequest(BaseRequest):
     # pylint: disable=not-an-iterable
     def get_response_by_method(self, context, store) -> dict:
         """ Вызов одного из методов скоринга """
+        print("store", store)
         if self.method == "online_score":
             online_score = OnlineScoreRequest(src_dict=self.arguments)
             if not online_score.is_valid():

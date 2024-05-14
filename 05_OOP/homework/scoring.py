@@ -3,8 +3,12 @@
 import hashlib
 import json
 
+from store import KVStore
+
+
 # pylint: disable=too-many-arguments
-def get_score(store, phone, email, birthday=None, gender=None, first_name=None, last_name=None):
+def get_score(store: KVStore, phone, email,
+              birthday=None, gender=None, first_name=None, last_name=None):
     """ Пытаемся получить скоринг из кеша,
     если там нет, то расчет скоринга
     в зависимости от заполненных полей """
@@ -33,7 +37,7 @@ def get_score(store, phone, email, birthday=None, gender=None, first_name=None, 
     return score
 
 
-def get_interests(store, cid):
+def get_interests(store: KVStore, cid):
     """ Получение списка интересов клиента """
     # interests = ["cars", "pets", "travel", "hi-tech", "sport", "music", "books", "tv", "cinema",
     #              "geek", "otus"]

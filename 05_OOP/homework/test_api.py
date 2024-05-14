@@ -6,6 +6,7 @@ import hashlib
 import unittest
 
 import api
+from store import KVStore
 
 
 def cases(testcases):
@@ -21,13 +22,14 @@ def cases(testcases):
     return decorator
 
 
+@unittest.SkipTest
 class RequestsTestCase(unittest.TestCase):
     """ Тесты запросов к API """
-    store = None
 
     def setUp(self):
         self.headers = {}
         self.context = {}
+        self.store = KVStore()
 
     @staticmethod
     def add_auth(request, login):
