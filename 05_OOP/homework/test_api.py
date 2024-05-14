@@ -22,14 +22,24 @@ def cases(testcases):
     return decorator
 
 
-@unittest.SkipTest
+# @unittest.SkipTest
 class RequestsTestCase(unittest.TestCase):
     """ Тесты запросов к API """
+    store = None
+
+    @classmethod
+    def setUpClass(cls):
+        """ Настройка подключения и запись тестовых данных """
+        cls.store = KVStore(port=3301, host='localhost', spacename='test')
+        cls.store.cache_set(1, '1')
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.store.connection.close()
 
     def setUp(self):
         self.headers = {}
         self.context = {}
-        self.store = KVStore()
 
     @staticmethod
     def add_auth(request, login):
@@ -65,6 +75,7 @@ class RequestsTestCase(unittest.TestCase):
         _, code = self.get_response(request)
         self.assertEqual(api.INVALID_REQUEST, code)
 
+    @unittest.SkipTest
     @cases([({"phone": "79001234567", "birthday": "01.01.2023", "gender": 1},
              3.0, ["phone", "birthday", "gender"]),
             ({"first_name": "Jack", "last_name": "Smith", "gender": 1},

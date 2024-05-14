@@ -53,6 +53,7 @@ class KVStore:
 
     def cache_get(self, key):
         """ Запрос из кеша """
+        print(f"!!!!!store cache_get request, key {key}")
         if not self.is_alive:
             return None
         responce: tarantool.response.Response = self.space.select(key)
@@ -62,9 +63,10 @@ class KVStore:
 
     def get(self, key):
         """ Запрос из хранилища """
-        responce: tarantool.response.Response = self.space.select(key)
-        if responce.rowcount == 1:
-            return responce.data[0][1]
+        print(f"!!!!!store get request, key {key}, type {type(key)}")
+        # responce: tarantool.response.Response = self.space.select(key)
+        # if responce.rowcount == 1:
+        #     return responce.data[0][1]
         return None
 
     def set(self, key, value):

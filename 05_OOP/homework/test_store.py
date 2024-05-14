@@ -15,7 +15,12 @@ class KVStoreTestCase(unittest.TestCase):
         cls.store = KVStore(port=3301, host='localhost', spacename='test')
         cls.store.cache_set(1, '1')
 
+    @classmethod
+    def tearDownClass(cls):
+        cls.store.connection.close()
+
     def test_is_alive(self):
+        """ Тестируем проверку подключения """
         status = self.store.is_alive
         self.assertTrue(status)
 
