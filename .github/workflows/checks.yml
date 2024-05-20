@@ -1,4 +1,4 @@
-name: Pylint
+name: Checks
 
 on: [push]
 
@@ -22,6 +22,9 @@ jobs:
     - name: Analysing the code with pylint
       run: |
         pylint $(git ls-files '*.py')
+    - name: Preparing tarantool container
+      run: |
+        docker run --name mytarantool -d -p 3301:3301 tarantool/tarantool:latest
     - name: Run unit tests
       run: |
         python ./01_advanced_basics/homework/test_log_analyzer.py
