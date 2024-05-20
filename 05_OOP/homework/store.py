@@ -4,34 +4,51 @@ import tarantool
 
 class KVStore:
     """ Класс для реализации основных функций работы с хранилищем """
+    _store_name = 'test_ci'  # space в tarantool где реализован store
+    _cache_name = 'test_scoring'  # space в tarantool где реализован cache
 
-    # pylint: disable=too-many-arguments
-    def __init__(self, port=3301, host='localhost', spacename='otus',
+    def __init__(self, port=3301, host='localhost',
                  reconnect_attempts=3, timeout=20):
         self._port = port
         self._host = host
-        self._spacename = spacename
         self._reconnect_attempts = reconnect_attempts
         self._timeout = timeout
-
         self.connection = None
-        self.space = None
+        self.cache_space = None
+        self.store_space = None
 
         self.connect()
+        self.init_cache()
+        self.init_store()
 
     def connect(self):
         """ Подключение к хранилищу """
         try:
-            self.connection = tarantool.connection.Connection(host=self._host, port=self._port,
-                                                reconnect_max_attempts=self._reconnect_attempts,
-                                                connection_timeout = self._timeout)
-            self.space = self.connection.space(self._spacename)
+            self.connection = tarantool.connection.Connection(
+                host=self._host, port=self._port,
+                reconnect_max_attempts=self._reconnect_attempts,
+                connection_timeout=self._timeout)
             print(f"Connected to tarantool service at {self._host, self._port}")
         except tarantool.error.NetworkError:
             print(f"Error connecting to tarantool service at {self._host, self._port}")
             return False
+        return True
+
+    def init_cache(self):
+        """ Подключение к спейсу в тарантул где живет кеш """
+        try:
+            self.cache_space = self.connection.space(self._cache_name)
         except tarantool.error.SchemaError:
-            print(f"There's no space with name '{self._spacename}'")
+            print(f"There's no space with name '{self._cache_name}'")
+            return False
+        return True
+
+    def init_store(self):
+        """ Подключение к спейсу в тарантул где живет store """
+        try:
+            self.store_space = self.connection.space(self._store_name)
+        except tarantool.error.SchemaError:
+            print(f"There's no space with name '{self._store_name}'")
             return False
         return True
 
@@ -49,29 +66,27 @@ class KVStore:
         """ Запись в кеш
         если значение с этим ключом там есть, меняем значение """
         if self.is_alive:
-            self.space.upsert((key, value, time), [("=", 1, value), ("=", 2, time)])
+            self.cache_space.upsert((key, value, time), [("=", 1, value), ("=", 2, time)])
 
     def cache_get(self, key):
         """ Запрос из кеша """
-        print(f"!!!!!store cache_get request, key {key}")
         if not self.is_alive:
             return None
-        responce: tarantool.response.Response = self.space.select(key)
+        responce: tarantool.response.Response = self.cache_space.select(key)
         if responce.rowcount == 1:
             return responce.data[0][1]
         return None
 
     def get(self, key):
         """ Запрос из хранилища """
-        print(f"!!!!!store get request, key {key}, type {type(key)}")
-        responce: tarantool.response.Response = self.space.select(key)
+        responce: tarantool.response.Response = self.store_space.select(key)
         if responce.rowcount == 1:
             return responce.data[0][1]
         return None
 
     def set(self, key, value):
         """ Запись в хранилище """
-        self.space.upsert((key, value), [("=", 1, value)])
+        self.store_space.upsert((key, value), [("=", 1, value)])
 
 
 def main():
