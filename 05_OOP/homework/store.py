@@ -36,12 +36,14 @@ class KVStore:
 
     def init_cache(self):
         """ Подключение к спейсу в тарантул где живет кеш """
-        try:
-            self.cache_space = self.connection.space(self._cache_name)
-        except tarantool.error.SchemaError:
-            print(f"There's no space with name '{self._cache_name}'")
-            return False
-        return True
+        if self.is_alive:
+            try:
+                self.cache_space = self.connection.space(self._cache_name)
+            except tarantool.error.SchemaError:
+                print(f"There's no space with name '{self._cache_name}'")
+                return False
+            return True
+        return False
 
     def init_store(self):
         """ Подключение к спейсу в тарантул где живет store """
