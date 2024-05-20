@@ -1,7 +1,6 @@
 """ Расчет скоринга """
 
 import hashlib
-import json
 
 from store import KVStore
 

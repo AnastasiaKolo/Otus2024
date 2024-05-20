@@ -26,3 +26,4 @@ jobs:
       run: |
         python ./01_advanced_basics/homework/test_log_analyzer.py
         python ./05_OOP/homework/test_api.py
+        python ./05_OOP/homework/test_scoring.py
