@@ -43,4 +43,4 @@ def get_interests(store: KVStore, cid):
     #              "geek", "otus"]
     # return random.sample(interests, 2)
     r = store.get(f"i:{cid}")
-    return json.loads(r) if r else []
+    return r if r else []
