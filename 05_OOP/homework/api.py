@@ -17,6 +17,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from scoring import get_score, get_interests
+from store import KVStore
 
 SALT = "Otus"
 ADMIN_LOGIN = "admin"
@@ -78,6 +79,7 @@ class CharField(BaseField):
 
         return value
 
+
 class EmailField(CharField):
     """ Строка, в которой есть @, опционально, может быть пустым """
     __template__ = r"^[a-zA-Z0-9\.\-\_]+@[a-zA-Z0-9\.\-\_]+\.[a-zA-Z0-9]+$"
@@ -120,6 +122,7 @@ class BirthDayField(DateField):
 
         return dt
 
+
 class GenderField(BaseField):
     """ Число 0, 1 или 2, опционально, может быть пустым """
     def validate(self, value):
@@ -130,6 +133,7 @@ class GenderField(BaseField):
             raise ValueError(f"Number 0, 1 or 2 expected in {self.__class__.__name__}")
 
         return value
+
 
 class ClientIDsField(BaseField):
     """ Массив чисел, обязательно, не пустое """
@@ -183,6 +187,7 @@ class BaseRequest:
     @property
     def non_empty_fields_lst(self) -> typing.List[str]:
         """ Список непустых полей объекта """
+        # print("non_empty_fields_lst", self.__dict__)
         return [key for key, value in self.__dict__.items() if value]
 
 
@@ -242,6 +247,7 @@ class MethodRequest(BaseRequest):
     # pylint: disable=not-an-iterable
     def get_response_by_method(self, context, store) -> dict:
         """ Вызов одного из методов скоринга """
+        print("store", store)
         if self.method == "online_score":
             online_score = OnlineScoreRequest(src_dict=self.arguments)
             if not online_score.is_valid():
@@ -278,7 +284,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
     router = {
         "method": method_handler
     }
-    store = None
+    store = KVStore()
 
     def get_request_id(self, headers):
         """ get_request_id """
