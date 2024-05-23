@@ -27,8 +27,8 @@ jobs:
 
     - name: Analyze the code with pylint
       run: |
-        pylint $(git ls-files './09_Authomatization_network/homework/*.py')
+        pylint ./09_Authomatization_network/homework/httpd.py
 
     - name: Run unit tests
       run: |
-        python ./09_Authomatization_network/homework/test_webserver.py
+        python ./09_Authomatization_network/homework/test_httpd.py
