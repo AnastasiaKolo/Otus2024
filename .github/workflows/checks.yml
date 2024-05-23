@@ -25,6 +25,7 @@ jobs:
     - name: Preparing tarantool container
       run: |
         docker run --name mytarantool -d -p 3301:3301 tarantool/tarantool:latest
+        python ./05_OOP/homework/init_tarantool.py
     - name: Run unit tests
       run: |
         python ./01_advanced_basics/homework/test_log_analyzer.py
