@@ -28,6 +28,7 @@ jobs:
     - name: Analyze the code with pylint
       run: |
         pylint ./09_Authomatization_network/homework/httpd.py
+        pylint ./09_Authomatization_network/homework/test_httpd.py
 
     - name: Run unit tests
       run: |
