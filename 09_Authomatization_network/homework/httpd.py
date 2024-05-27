@@ -46,8 +46,8 @@ class Worker:
     """ Обработчик запросов """
 
     def __init__(self):
-        self.raw_out = b''  # queue for outgoing messages to this client
-        self.raw_in = b''
+        self.raw_out = b""  # outgoing message to the client
+        self.raw_in = b""
 
     def __str__(self):
         """ Представление в виде строки """
@@ -144,9 +144,12 @@ class HTTPServer:
             logging.debug("Sending Worker raw_out")
             try:
                 client_socket.send(worker.raw_out)
+                logging.info("'%s' sent to client",
+                             worker.raw_out)
+                worker.raw_out = b""
             except ConnectionError:  # Сокет недоступен, клиент отключился
-                logging.info("%s disconnected in send_data",
-                             self.workers[client_socket].client_name)
+                logging.info("Client %s disconnected in send_data",
+                             self.workers[client_socket])
                 self.disconnect_client(client_socket)
 
     def listen_socket(self):
