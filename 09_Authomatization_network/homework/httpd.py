@@ -6,6 +6,8 @@ import argparse
 import logging
 import select
 
+import http.server
+
 from socket import socket, AF_INET, SOCK_STREAM
 
 
@@ -56,8 +58,16 @@ class Worker:
     def work(self):
         """ Обработка запросов """
         if self.raw_in:
+            self.parse_request()
             self.raw_out = self.raw_in
             self.raw_in = b''
+
+
+    def parse_request(self):
+        request_str = str(self.raw_in, 'iso-8859-1')
+        words = request_str.split('\r\n')
+        for c in words:
+            print(c)
 
 
 class HTTPServer:
@@ -79,24 +89,21 @@ class HTTPServer:
                 except OSError:
                     pass  # timeout expired
                 else:
-                    print(f"Incoming connection {str(addr)}")
+                    logging.info("Incoming connection %s",  str(addr))
                     self.clients.append(client)
                     self.workers[client] = Worker()
 
                 finally:
-                    r = []
-                    w = []
-                    e = []
+                    r, w, e = [], [], []
                     try:
                         r, w, e = select.select(self.clients, self.clients, [], 0)
                     except OSError:
                         pass  # timeout
-                    for sock in e:
-                        # sockets disconnected
+                    for sock in e:  # sockets disconnected
                         self.disconnect_client(sock)
                     for sock in r:  # sockets that can be read
                         self.receive_data(sock)
-                    for sock in self.clients:
+                    for sock in self.clients:  # serving current clients
                         self.process_data(sock)
                     for sock in w:  # sockets that can be written to
                         self.send_data(sock)
@@ -161,7 +168,6 @@ class HTTPServer:
         # Таймаут необходим, чтобы не ждать появления данных в сокете
         sock.settimeout(0.2)
         logging.info("Listening port %s", str(self.address[1]))
-        print(f"Listening port {str(self.address[1])}")
         return sock
 
     def server_close(self):
