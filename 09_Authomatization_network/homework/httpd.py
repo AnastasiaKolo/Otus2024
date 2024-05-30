@@ -3,25 +3,28 @@
 """
 
 import argparse
+import json
 import logging
+import mimetypes
+import os
 import select
 
-import http.server
-
+#from os.path import isfile, isdir, join, getsize, splitext, normpath
 from socket import socket, AF_INET, SOCK_STREAM
+from time import strftime, localtime
 
-
-LOGGING_FORMAT = '[%(asctime)s] %(levelname).1s %(message)s'
-LOGGING_DATEFMT = '%Y.%m.%d %H:%M:%S'
+LOGGING_FORMAT = "[%(asctime)s] %(levelname).1s %(message)s"
+LOGGING_DATEFMT = "%Y.%m.%d %H:%M:%S"
 LOGGING_LEVEL = logging.INFO
 LOGGING_FILE = None
 
 logging.basicConfig(filename=LOGGING_FILE, level=LOGGING_LEVEL,
                     format=LOGGING_FORMAT, datefmt=LOGGING_DATEFMT)
 
-HOST = '127.0.0.1'
+HOST = "127.0.0.1"
 PORT = 8080
-DOCUMENT_ROOT = 'www'
+DOCUMENT_ROOT = "www"
+INDEX = 'index.html'
 
 OK = 200
 NOT_FOUND = 404
@@ -43,13 +46,27 @@ HTML_ERROR = """<html>
 </html>
 """
 
+# class Request:
+#     """ Парсинг запроса """
+#     maxsize = 65536
 
+
+# pylint: disable=too-many-instance-attributes
 class Worker:
     """ Обработчик запросов """
+    maxsize = 65536
+    supported_methods = ('GET', 'HEAD')
 
-    def __init__(self):
-        self.raw_out = b""  # outgoing message to the client
-        self.raw_in = b""
+    def __init__(self, document_root: str):
+        self.raw_out = b''  # outgoing message to the client
+        self.raw_in = b''
+        self.method = ''
+        self.path = ''
+        self.request_protocol = ''
+        self.status = 0
+        self.document_root = document_root
+        self.response_body = b''
+        logging.info('Initialized worker')
 
     def __str__(self):
         """ Представление в виде строки """
@@ -58,16 +75,66 @@ class Worker:
     def work(self):
         """ Обработка запросов """
         if self.raw_in:
-            self.parse_request()
-            self.raw_out = self.raw_in
+            if self.parse_request():
+                self.make_response()
+            self.raw_out = self.pack_response()
             self.raw_in = b''
+        else:
+            logging.debug("Empty request given")
 
+    def parse_request(self) -> bool:
+        """ Парсинг запроса """
+        request_str = str(self.raw_in, "iso-8859-1")
+        if len(request_str) > self.maxsize:
+            self.status = BAD_REQUEST
+            return False
+        request_str, _ = request_str.split("\r\n", maxsplit=1)
+        try:
+            method, path, protocol = request_str.strip().split(' ')
+        except ValueError:
+            logging.error("Unable to parse request headers '%s'", request_str)
+            self.status = BAD_REQUEST
+            return False
+        self.method = method.upper()
+        self.path = os.path.join(self.document_root, os.path.normpath(path.strip("?").lstrip("/")))
+        self.request_protocol = protocol
+        logging.info("Incoming request method=%s, path=%s, protocol=%s",
+                     self.method, self.path, protocol)
+        return True
 
-    def parse_request(self):
-        request_str = str(self.raw_in, 'iso-8859-1')
-        words = request_str.split('\r\n')
-        for c in words:
-            print(c)
+    def make_response(self):
+        """ Подготовка ответа """
+        if self.method not in self.supported_methods:
+            logging.error("Method not supported: %s", self.method)
+            self.status = NOT_ALLOWED
+        elif os.path.isfile(self.path):
+            self.response_body = self.path
+            self.status = OK
+            logging.debug("Sending file: %s", self.path)
+        elif os.path.isdir(self.path):
+            index_file = os.path.join(self.path, INDEX)
+            if os.path.isfile(index_file):
+                self.response_body = index_file
+                self.status = OK
+        self.status = NOT_FOUND
+
+    def pack_response(self) -> bytes:
+        """ Упаковка ответа для отправки """
+        response_headers = {
+            'Date': strftime("%a, %d %b %Y %H:%M:%S", localtime()),
+            'Server': 'Otus homework web server',
+            'Connection': 'close',
+            'Content-Type': 'text/html; charset="utf8"',
+            'Content-Length': 0
+        }
+        if self.response_body:
+            response_headers['Content-Length'] = os.path.getsize(self.response_body)
+            _, extension = os.path.splitext(self.path)
+            content_type = mimetypes.types_map.get(extension)
+            if content_type:
+                response_headers['Content-Type'] = content_type
+        response = json.dumps(response_headers)
+        return response.encode('utf-8') + self.response_body
 
 
 class HTTPServer:
@@ -91,7 +158,7 @@ class HTTPServer:
                 else:
                     logging.info("Incoming connection %s",  str(addr))
                     self.clients.append(client)
-                    self.workers[client] = Worker()
+                    self.workers[client] = Worker(self.document_root)
 
                 finally:
                     r, w, e = [], [], []
@@ -151,8 +218,7 @@ class HTTPServer:
             logging.debug("Sending Worker raw_out")
             try:
                 client_socket.send(worker.raw_out)
-                logging.info("'%s' sent to client",
-                             worker.raw_out)
+                logging.info("Response sent to client")
                 worker.raw_out = b""
             except ConnectionError:  # Сокет недоступен, клиент отключился
                 logging.info("Client %s disconnected in send_data",
@@ -172,7 +238,8 @@ class HTTPServer:
 
     def server_close(self):
         """ Остановка сервера """
-        pass
+        for client in self.clients:
+            self.disconnect_client(client)
 
 
 def get_params() -> argparse.Namespace:
