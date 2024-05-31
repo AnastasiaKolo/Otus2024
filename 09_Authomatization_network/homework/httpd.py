@@ -3,7 +3,6 @@
 """
 
 import argparse
-import json
 import logging
 import mimetypes
 import os
@@ -15,7 +14,7 @@ from time import strftime, localtime
 
 LOGGING_FORMAT = "[%(asctime)s] %(levelname).1s %(message)s"
 LOGGING_DATEFMT = "%Y.%m.%d %H:%M:%S"
-LOGGING_LEVEL = logging.INFO
+LOGGING_LEVEL = logging.DEBUG
 LOGGING_FILE = None
 
 logging.basicConfig(filename=LOGGING_FILE, level=LOGGING_LEVEL,
@@ -33,6 +32,15 @@ BAD_REQUEST = 400
 NOT_ALLOWED = 405
 INTERNAL_SERVER_ERROR = 500
 HTTP_VERSION_NOT_SUPPORTED = 505
+MESSAGES = {
+    OK: 'OK',
+    NOT_FOUND: 'NOT_FOUND',
+    FORBIDDEN: 'FORBIDDEN',
+    BAD_REQUEST: 'BAD_REQUEST',
+    NOT_ALLOWED: 'NOT_ALLOWED',
+    INTERNAL_SERVER_ERROR: 'INTERNAL_SERVER_ERROR',
+    HTTP_VERSION_NOT_SUPPORTED: 'HTTP_VERSION_NOT_SUPPORTED'
+}
 HTML_ERROR = """<html>
 <head>
 <meta charset="UTF-8"> 
@@ -45,10 +53,6 @@ HTML_ERROR = """<html>
 </body>
 </html>
 """
-
-# class Request:
-#     """ Парсинг запроса """
-#     maxsize = 65536
 
 
 # pylint: disable=too-many-instance-attributes
@@ -66,75 +70,77 @@ class Worker:
         self.status = 0
         self.document_root = document_root
         self.response_body = b''
-        logging.info('Initialized worker')
+        logging.debug('Initialized worker')
 
     def __str__(self):
         """ Представление в виде строки """
-        return f"raw_out ({self.raw_out}), raw_in ({self.raw_in})"
+        return f'raw_out ({self.raw_out}), raw_in ({self.raw_in})'
 
     def work(self):
         """ Обработка запросов """
         if self.raw_in:
             if self.parse_request():
-                self.make_response()
-            self.raw_out = self.pack_response()
+                self.prepare_response()
+            self.raw_out = self.pack_response_headers()
             self.raw_in = b''
         else:
-            logging.debug("Empty request given")
+            logging.debug('Empty request given')
 
     def parse_request(self) -> bool:
         """ Парсинг запроса """
-        request_str = str(self.raw_in, "iso-8859-1")
+        logging.debug('Parsing %s', self.raw_in)
+        request_str = self.raw_in.decode('iso-8859-1')
         if len(request_str) > self.maxsize:
             self.status = BAD_REQUEST
             return False
-        request_str, _ = request_str.split("\r\n", maxsplit=1)
         try:
+            request_str, _ = request_str.split('\r\n', maxsplit=1)
             method, path, protocol = request_str.strip().split(' ')
         except ValueError:
-            logging.error("Unable to parse request headers '%s'", request_str)
+            logging.error('Unable to parse request headers "%s"', request_str)
             self.status = BAD_REQUEST
             return False
         self.method = method.upper()
-        self.path = os.path.join(self.document_root, os.path.normpath(path.strip("?").lstrip("/")))
+        self.path = os.path.join(self.document_root, os.path.normpath(path.strip('?').lstrip('/')))
         self.request_protocol = protocol
-        logging.info("Incoming request method=%s, path=%s, protocol=%s",
+        logging.info('Incoming request method=%s, path=%s, protocol=%s',
                      self.method, self.path, protocol)
         return True
 
-    def make_response(self):
+    def prepare_response(self):
         """ Подготовка ответа """
         if self.method not in self.supported_methods:
-            logging.error("Method not supported: %s", self.method)
+            logging.error('Method not supported: %s', self.method)
             self.status = NOT_ALLOWED
-        elif os.path.isfile(self.path):
-            self.response_body = self.path
+            return
+        if os.path.isdir(self.path):
+            self.path = os.path.join(self.path, INDEX)
+        if os.path.isfile(self.path):
             self.status = OK
-            logging.debug("Sending file: %s", self.path)
-        elif os.path.isdir(self.path):
-            index_file = os.path.join(self.path, INDEX)
-            if os.path.isfile(index_file):
-                self.response_body = index_file
-                self.status = OK
         self.status = NOT_FOUND
 
-    def pack_response(self) -> bytes:
-        """ Упаковка ответа для отправки """
+    def pack_response_headers(self) -> bytes:
+        """ Упаковка заголовков ответа для отправки """
         response_headers = {
-            'Date': strftime("%a, %d %b %Y %H:%M:%S", localtime()),
+            'Date': strftime('%a, %d %b %Y %H:%M:%S', localtime()),
             'Server': 'Otus homework web server',
             'Connection': 'close',
             'Content-Type': 'text/html; charset="utf8"',
             'Content-Length': 0
         }
-        if self.response_body:
-            response_headers['Content-Length'] = os.path.getsize(self.response_body)
+        message = MESSAGES.get(self.status)
+        if self.status != OK:
+            self.response_body = HTML_ERROR.format(status=self.status,
+                                                   text=message).encode('utf-8')
+        elif self.response_body:
+            response_headers['Content-Length'] = os.path.getsize(self.path)
             _, extension = os.path.splitext(self.path)
-            content_type = mimetypes.types_map.get(extension)
-            if content_type:
-                response_headers['Content-Type'] = content_type
-        response = json.dumps(response_headers)
-        return response.encode('utf-8') + self.response_body
+            response_headers['Content-Type'] = mimetypes.types_map.get(extension)
+        headers = f'HTTP/1.1 {self.status} {message}\r\n'
+        for name, value in response_headers.items():
+            headers += f'{name}: {value}\r\n'
+        headers += '\r\n'
+        return headers.encode('utf-8')
 
 
 class HTTPServer:
@@ -156,7 +162,7 @@ class HTTPServer:
                 except OSError:
                     pass  # timeout expired
                 else:
-                    logging.info("Incoming connection %s",  str(addr))
+                    logging.info('Incoming connection %s',  str(addr))
                     self.clients.append(client)
                     self.workers[client] = Worker(self.document_root)
 
@@ -175,7 +181,7 @@ class HTTPServer:
                     for sock in w:  # sockets that can be written to
                         self.send_data(sock)
         except KeyboardInterrupt:
-            logging.info("Shutting down")
+            logging.info('Shutting down')
             self.server_close()
 
     def disconnect_client(self, client_socket):
@@ -203,7 +209,7 @@ class HTTPServer:
             if total_data:
                 self.workers[client_socket].raw_in = total_data
         except ConnectionError:
-            logging.error("Client disconnected in receive_data")
+            logging.error('Client disconnected in receive_data')
             self.disconnect_client(client_socket)
 
     def send_data(self, client_socket):
@@ -212,16 +218,17 @@ class HTTPServer:
             worker = self.workers[client_socket]
         except KeyError:
             # client has already disconnected, nobody to send data
-            logging.debug("Worker not found for %s", client_socket)
+            logging.debug('Worker not found for %s', client_socket)
             return
         if worker.raw_out:
-            logging.debug("Sending Worker raw_out")
+            logging.debug('Sending Worker raw_out')
             try:
                 client_socket.send(worker.raw_out)
-                logging.info("Response sent to client")
+                logging.debug(worker.raw_out)
+                logging.info('Response sent to client')
                 worker.raw_out = b""
             except ConnectionError:  # Сокет недоступен, клиент отключился
-                logging.info("Client %s disconnected in send_data",
+                logging.info('Client %s disconnected in send_data',
                              self.workers[client_socket])
                 self.disconnect_client(client_socket)
 
@@ -233,7 +240,7 @@ class HTTPServer:
         # Таймаут для операций с сокетом
         # Таймаут необходим, чтобы не ждать появления данных в сокете
         sock.settimeout(0.2)
-        logging.info("Listening port %s", str(self.address[1]))
+        logging.info('Listening port %s', str(self.address[1]))
         return sock
 
     def server_close(self):
@@ -245,8 +252,8 @@ class HTTPServer:
 def get_params() -> argparse.Namespace:
     """ Обработка параметров командной строки """
     parser = argparse.ArgumentParser(description='Web Server')
-    parser.add_argument("--ip", "-i", default=HOST, type=str)
-    parser.add_argument("--port", "-p", default=PORT, type=int)
+    parser.add_argument('--ip', '-i', default=HOST, type=str)
+    parser.add_argument('--port', '-p', default=PORT, type=int)
     parser.add_argument('--workers', '-w', default=4, type=int)
     parser.add_argument('--documentroot', '-r', default=DOCUMENT_ROOT)
     args = parser.parse_args()
@@ -261,15 +268,15 @@ def main():
     params = get_params()
 
     server = HTTPServer(params.ip, params.port, params.workers, params.documentroot)
-    logging.info("Starting server at %s:%s", params.ip, params.port)
+    logging.info('Starting server at %s:%s', params.ip, params.port)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        logging.info("Server was stopped by user")
+        logging.info('Server was stopped by user')
     except:  # pylint: disable=bare-except
-        logging.exception("Unexpected error")
+        logging.exception('Unexpected error')
     server.server_close()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
