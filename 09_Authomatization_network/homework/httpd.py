@@ -1,16 +1,15 @@
-"""
-Модуль реализует web server
-"""
+""" Модуль реализует web server c многопоточной архитектурой """
 
 import argparse
 import logging
 import mimetypes
 import os
-import select
 
-#from os.path import isfile, isdir, join, getsize, splitext, normpath
-from socket import socket, AF_INET, SOCK_STREAM
-from time import strftime, localtime
+import threading
+import time
+
+from socket import socket, AF_INET, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR
+
 
 LOGGING_FORMAT = "[%(asctime)s] %(levelname).1s %(message)s"
 LOGGING_DATEFMT = "%Y.%m.%d %H:%M:%S"
@@ -23,7 +22,8 @@ logging.basicConfig(filename=LOGGING_FILE, level=LOGGING_LEVEL,
 HOST = "127.0.0.1"
 PORT = 8080
 DOCUMENT_ROOT = "www"
-INDEX = 'index.html'
+INDEX = "index.html"
+ENCODING = "utf-8"
 
 OK = 200
 NOT_FOUND = 404
@@ -33,13 +33,13 @@ NOT_ALLOWED = 405
 INTERNAL_SERVER_ERROR = 500
 HTTP_VERSION_NOT_SUPPORTED = 505
 MESSAGES = {
-    OK: 'OK',
-    NOT_FOUND: 'NOT_FOUND',
-    FORBIDDEN: 'FORBIDDEN',
-    BAD_REQUEST: 'BAD_REQUEST',
-    NOT_ALLOWED: 'NOT_ALLOWED',
-    INTERNAL_SERVER_ERROR: 'INTERNAL_SERVER_ERROR',
-    HTTP_VERSION_NOT_SUPPORTED: 'HTTP_VERSION_NOT_SUPPORTED'
+    OK: "OK",
+    NOT_FOUND: "NOT_FOUND",
+    FORBIDDEN: "FORBIDDEN",
+    BAD_REQUEST: "BAD_REQUEST",
+    NOT_ALLOWED: "NOT_ALLOWED",
+    INTERNAL_SERVER_ERROR: "INTERNAL_SERVER_ERROR",
+    HTTP_VERSION_NOT_SUPPORTED: "HTTP_VERSION_NOT_SUPPORTED"
 }
 HTML_ERROR = """<html>
 <head>
@@ -55,228 +55,209 @@ HTML_ERROR = """<html>
 """
 
 
-# pylint: disable=too-many-instance-attributes
-class Worker:
-    """ Обработчик запросов """
-    maxsize = 65536
-    supported_methods = ('GET', 'HEAD')
+class EchoServer:
+    """ Base class TCP Echo Server """
+    def __init__(self, host: str, port: int, workers: int, stop_event: threading.Event):
+        self.address = (host, port)
+        self.read_size = 1024
+        self.workers = workers
+        self.opened_threads = []
+        self.sock: socket = None
+        self.stop_event = stop_event
 
-    def __init__(self, document_root: str):
-        self.raw_out = b''  # outgoing message to the client
-        self.raw_in = b''
-        self.method = ''
-        self.path = ''
-        self.request_protocol = ''
+    def start(self):
+        """ Try to open the socket and start server threads"""
+        self.sock = socket(AF_INET, SOCK_STREAM)
+        self.sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+        try:
+            logging.info("Starting HTTP server on %s...", self.address)
+            self.sock.bind(self.address)
+        except OSError:
+            logging.exception("Failed to bind socket")
+            return
+        logging.info("Listening port %s", str(self.address[1]))
+        logging.info("Press Ctrl+C to shut down the server and exit.")
+        for key in range(self.workers):
+            logging.info("Starting worker thread %s", key)
+            t = threading.Thread(target=self.listen, args=(key,))
+            t.start()
+            self.opened_threads.append(t)
+        logging.debug("All threads started")
+
+    def listen(self, worker_key):
+        """ Listen to incoming connections """
+        self.sock.listen(5)
+        self.sock.settimeout(0.5)
+        while not self.stop_event.is_set():
+            logging.debug("Worker %s: accepting connections", worker_key)
+            try:
+                client, _ = self.sock.accept()
+                self.serve_client(client, worker_key)
+            except OSError:
+                pass  # timeout expired
+
+    def serve_client(self, client, worker_key):
+        """ Responding to client request """
+        try:
+            data = self.read(client)
+            logging.debug("Worker %s received: %s", worker_key, data)
+            if data:
+                response = self.get_response(data)
+                client.sendall(response)
+                logging.debug("Worker %s has sent response %s", worker_key, response)
+                client.close()
+            else:
+                logging.debug("Worker %s: Client disconnected", worker_key)
+        except OSError:
+            logging.exception("Error serving client in worker thread %s", worker_key)
+            client.close()
+
+    def read(self, client):
+        """ Receive data from socket"""
+        data = client.recv(self.read_size)
+        return data
+
+    def get_response(self, data: bytes) -> bytes:
+        """ Simple version returning echo response """
+        return data
+
+    def shutdown(self):
+        """ Stop all threads and close the socket """
+        try:
+            logging.info("Shutting down the server")
+            for th in self.opened_threads:
+                th.join(timeout=2)
+                logging.debug("Joined thread %s", th.name)
+        except OSError:
+            logging.exception("Could not shut down the socket. Maybe it was already closed")
+
+
+class HTTPServer(EchoServer):
+    """ Added methods to read and parse requests, prepare and send responses """
+    maxsize = 65536
+    supported_methods = ("GET", "HEAD")
+
+    # pylint: disable=too-many-arguments
+    def __init__(self, host, port, workers, stop_event, document_root):
+        super().__init__(host, port, workers, stop_event)
+        self.method = ""
+        self.path = ""
         self.status = 0
         self.document_root = document_root
-        self.response_body = b''
-        logging.debug('Initialized worker')
+        self.response_headers = b"empty_header"  # for debug
+        self.response_body = b"empty_body"
 
-    def __str__(self):
-        """ Представление в виде строки """
-        return f'raw_out ({self.raw_out}), raw_in ({self.raw_in})'
+    def read(self, client):
+        data = bytearray()
+        client.settimeout(10)
+        while b"\r\n\r\n" not in data:
+            data += client.recv(self.read_size)
+            if len(data) > self.maxsize:
+                self.status = BAD_REQUEST
+                break
+        return data
 
-    def work(self):
-        """ Обработка запросов """
-        if self.raw_in:
-            if self.parse_request():
-                self.prepare_response()
-            self.raw_out = self.pack_response_headers()
-            self.raw_in = b''
-        else:
-            logging.debug('Empty request given')
+    def get_response(self, data: bytes) -> bytes:
+        if self.parse_request(data):
+            self.analyze_request()
+            self.get_html_file()
+        self.get_response_headers()
+        if self.method == "GET":
+            return self.response_headers + self.response_body
+        return self.response_headers  # HEAD request
 
-    def parse_request(self) -> bool:
+    def parse_request(self, data: bytes) -> bool:
         """ Парсинг запроса """
-        logging.debug('Parsing %s', self.raw_in)
-        request_str = self.raw_in.decode('iso-8859-1')
-        if len(request_str) > self.maxsize:
-            self.status = BAD_REQUEST
-            return False
+        logging.debug("Parsing %s", data)
+        request_str = data.decode("iso-8859-1")
         try:
-            request_str, _ = request_str.split('\r\n', maxsplit=1)
-            method, path, protocol = request_str.strip().split(' ')
+            request_str, _ = request_str.split("\r\n", maxsplit=1)
+            method, path, protocol = request_str.strip().split(" ")
         except ValueError:
-            logging.error('Unable to parse request headers "%s"', request_str)
+            logging.error("Unable to parse request headers '%s'", request_str)
             self.status = BAD_REQUEST
             return False
         self.method = method.upper()
-        self.path = os.path.join(self.document_root, os.path.normpath(path.strip('?').lstrip('/')))
-        self.request_protocol = protocol
-        logging.info('Incoming request method=%s, path=%s, protocol=%s',
+        self.path = os.path.join(self.document_root, os.path.normpath(path.strip("?").lstrip("/")))
+        logging.info("Incoming request method=%s, path=%s, protocol=%s",
                      self.method, self.path, protocol)
         return True
 
-    def prepare_response(self):
+    def analyze_request(self):
         """ Подготовка ответа """
         if self.method not in self.supported_methods:
-            logging.error('Method not supported: %s', self.method)
+            logging.error("Method not supported: %s", self.method)
             self.status = NOT_ALLOWED
             return
         if os.path.isdir(self.path):
             self.path = os.path.join(self.path, INDEX)
         if os.path.isfile(self.path):
             self.status = OK
-        self.status = NOT_FOUND
+        else:
+            self.status = NOT_FOUND
 
-    def pack_response_headers(self) -> bytes:
+    def get_html_file(self) :
+        """ Read file for GET request """
+        try:
+            with open(self.path, "rb") as f:
+                self.response_body = f.read()
+        except OSError:
+            self.status = INTERNAL_SERVER_ERROR
+
+    def get_response_headers(self):
         """ Упаковка заголовков ответа для отправки """
         response_headers = {
-            'Date': strftime('%a, %d %b %Y %H:%M:%S', localtime()),
-            'Server': 'Otus homework web server',
-            'Connection': 'close',
-            'Content-Type': 'text/html; charset="utf8"',
-            'Content-Length': 0
+            "Date": time.strftime("%a, %d %b %Y %H:%M:%S", time.localtime()),
+            "Server": "Otus homework web server",
+            "Connection": "close",
+            "Content-Type": "text/html; charset='utf8'",
+            "Content-Length": 0
         }
         message = MESSAGES.get(self.status)
         if self.status != OK:
             self.response_body = HTML_ERROR.format(status=self.status,
-                                                   text=message).encode('utf-8')
-        elif self.response_body:
-            response_headers['Content-Length'] = os.path.getsize(self.path)
+                                                   text=message).encode("utf-8")
+        else:
+            response_headers["Content-Length"] = os.path.getsize(self.path)
             _, extension = os.path.splitext(self.path)
-            response_headers['Content-Type'] = mimetypes.types_map.get(extension)
-        headers = f'HTTP/1.1 {self.status} {message}\r\n'
+            response_headers["Content-Type"] = mimetypes.types_map.get(extension)
+        headers = f"HTTP/1.1 {self.status} {message}\r\n"
         for name, value in response_headers.items():
-            headers += f'{name}: {value}\r\n'
-        headers += '\r\n'
-        return headers.encode('utf-8')
-
-
-class HTTPServer:
-    """ Реализация веб сервера """
-    def __init__(self, host, port, workers, document_root):
-        self.address = (host, port)
-        self.workers = workers
-        self.document_root = document_root
-        self.sock = self.listen_socket()
-        self.clients = []  # list of currently connected client sockets
-        self.workers = {}  # dictionary, key = client, value = worker workers for each socket
-
-    def serve_forever(self):
-        """ Обслуживание запросов """
-        try:
-            while True:
-                try:
-                    client, addr = self.sock.accept()  # connect new clients
-                except OSError:
-                    pass  # timeout expired
-                else:
-                    logging.info('Incoming connection %s',  str(addr))
-                    self.clients.append(client)
-                    self.workers[client] = Worker(self.document_root)
-
-                finally:
-                    r, w, e = [], [], []
-                    try:
-                        r, w, e = select.select(self.clients, self.clients, [], 0)
-                    except OSError:
-                        pass  # timeout
-                    for sock in e:  # sockets disconnected
-                        self.disconnect_client(sock)
-                    for sock in r:  # sockets that can be read
-                        self.receive_data(sock)
-                    for sock in self.clients:  # serving current clients
-                        self.process_data(sock)
-                    for sock in w:  # sockets that can be written to
-                        self.send_data(sock)
-        except KeyboardInterrupt:
-            logging.info('Shutting down')
-            self.server_close()
-
-    def disconnect_client(self, client_socket):
-        """ Отсоединение клиента """
-        client_socket.close()
-        if client_socket in self.clients:
-            self.clients.remove(client_socket)
-        if client_socket in self.workers:
-            self.workers.pop(client_socket)
-
-    def process_data(self, client_socket):
-        """ Вызов обработчика для клиента """
-        if self.workers[client_socket].raw_in:
-            self.workers[client_socket].work()
-
-    def receive_data(self, client_socket):
-        """ Получение данных """
-        try:
-            total_data = b''
-            while True:
-                data = client_socket.recv(1024)
-                total_data += data
-                if not data or len(data) < 1024:
-                    break
-            if total_data:
-                self.workers[client_socket].raw_in = total_data
-        except ConnectionError:
-            logging.error('Client disconnected in receive_data')
-            self.disconnect_client(client_socket)
-
-    def send_data(self, client_socket):
-        """ Отправка данных """
-        try:
-            worker = self.workers[client_socket]
-        except KeyError:
-            # client has already disconnected, nobody to send data
-            logging.debug('Worker not found for %s', client_socket)
-            return
-        if worker.raw_out:
-            logging.debug('Sending Worker raw_out')
-            try:
-                client_socket.send(worker.raw_out)
-                logging.debug(worker.raw_out)
-                logging.info('Response sent to client')
-                worker.raw_out = b""
-            except ConnectionError:  # Сокет недоступен, клиент отключился
-                logging.info('Client %s disconnected in send_data',
-                             self.workers[client_socket])
-                self.disconnect_client(client_socket)
-
-    def listen_socket(self):
-        """ Открытие сокета """
-        sock = socket(AF_INET, SOCK_STREAM)
-        sock.bind(self.address)
-        sock.listen(5)
-        # Таймаут для операций с сокетом
-        # Таймаут необходим, чтобы не ждать появления данных в сокете
-        sock.settimeout(0.2)
-        logging.info('Listening port %s', str(self.address[1]))
-        return sock
-
-    def server_close(self):
-        """ Остановка сервера """
-        for client in self.clients:
-            self.disconnect_client(client)
+            headers += f"{name}: {value}\r\n"
+        headers += "\r\n"
+        self.response_headers = headers.encode("utf-8")
 
 
 def get_params() -> argparse.Namespace:
-    """ Обработка параметров командной строки """
-    parser = argparse.ArgumentParser(description='Web Server')
-    parser.add_argument('--ip', '-i', default=HOST, type=str)
-    parser.add_argument('--port', '-p', default=PORT, type=int)
-    parser.add_argument('--workers', '-w', default=4, type=int)
-    parser.add_argument('--documentroot', '-r', default=DOCUMENT_ROOT)
+    """ Get and parse command string parameters """
+    parser = argparse.ArgumentParser(description="Web Server")
+    parser.add_argument("--ip", "-i", default=HOST, type=str)
+    parser.add_argument("--port", "-p", default=PORT, type=int)
+    parser.add_argument("--workers", "-w", default=2, type=int)
+    parser.add_argument("--documentroot", "-r", default=DOCUMENT_ROOT)
     args = parser.parse_args()
     return args
 
 
 def main():
-    """
-    Читает параметры и вызывает дальнейшие действия в программе
-    @return:
-    """
+    """ Get parameters and start server """
     params = get_params()
-
-    server = HTTPServer(params.ip, params.port, params.workers, params.documentroot)
-    logging.info('Starting server at %s:%s', params.ip, params.port)
+    stop_event = threading.Event()
+    server = HTTPServer(params.ip, params.port, params.workers, stop_event, params.documentroot)
     try:
-        server.serve_forever()
+        server.start()
+        while not stop_event.is_set():
+            time.sleep(0.5)
+            logging.debug("Main thread")
     except KeyboardInterrupt:
-        logging.info('Server was stopped by user')
+        logging.debug("KeyboardInterrupt signal received!")
+        stop_event.set()
+        time.sleep(0.5)
+        server.shutdown()
+        logging.info("Server was stopped by user")
     except:  # pylint: disable=bare-except
-        logging.exception('Unexpected error')
-    server.server_close()
+        logging.exception("Unexpected error")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
