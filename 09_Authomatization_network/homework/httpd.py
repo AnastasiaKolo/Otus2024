@@ -108,6 +108,9 @@ class EchoServer:
                 client.close()
             else:
                 logging.debug("Worker %s: Client disconnected", worker_key)
+        except TimeoutError:
+            logging.info("Worker %s: timed out waiting for request", worker_key)
+            client.close()
         except OSError:
             logging.exception("Error serving client in worker thread %s", worker_key)
             client.close()
