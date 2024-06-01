@@ -21,7 +21,7 @@ logging.basicConfig(filename=LOGGING_FILE, level=LOGGING_LEVEL,
 
 HOST = "127.0.0.1"
 PORT = 8080
-DOCUMENT_ROOT = "www"
+DOCUMENT_ROOT = "09_Authomatization_network\\homework\\www"
 INDEX = "index.html"
 ENCODING = "utf-8"
 
@@ -89,7 +89,7 @@ class EchoServer:
         self.sock.listen(5)
         self.sock.settimeout(0.5)
         while not self.stop_event.is_set():
-            logging.debug("Worker %s: accepting connections", worker_key)
+            # logging.debug("Worker %s: accepting connections", worker_key)
             try:
                 client, _ = self.sock.accept()
                 self.serve_client(client, worker_key)
@@ -163,7 +163,9 @@ class HTTPServer(EchoServer):
     def get_response(self, data: bytes) -> bytes:
         if self.parse_request(data):
             self.analyze_request()
+        if self.status == OK and self.method == "GET":
             self.get_html_file()
+        logging.debug("Preparing headers... Status=%s", self.status)
         self.get_response_headers()
         if self.method == "GET":
             return self.response_headers + self.response_body
@@ -171,7 +173,6 @@ class HTTPServer(EchoServer):
 
     def parse_request(self, data: bytes) -> bool:
         """ Парсинг запроса """
-        logging.debug("Parsing %s", data)
         request_str = data.decode("iso-8859-1")
         try:
             request_str, _ = request_str.split("\r\n", maxsplit=1)
@@ -181,8 +182,12 @@ class HTTPServer(EchoServer):
             self.status = BAD_REQUEST
             return False
         self.method = method.upper()
-        self.path = os.path.join(self.document_root, os.path.normpath(path.strip("?").lstrip("/")))
-        logging.info("Incoming request method=%s, path=%s, protocol=%s",
+        self.path = os.path.join(os.path.abspath(os.getcwd()),
+                                 self.document_root,
+                                 path.lstrip("/")).lstrip("\\")
+        logging.debug("Path %s", self.path)
+        # self.path.lstrip("/").lstrip("\\")  # remove slash in the end
+        logging.info("Parsed request method=%s, path=%s, protocol=%s",
                      self.method, self.path, protocol)
         return True
 
@@ -191,20 +196,25 @@ class HTTPServer(EchoServer):
         if self.method not in self.supported_methods:
             logging.error("Method not supported: %s", self.method)
             self.status = NOT_ALLOWED
-            return
-        if os.path.isdir(self.path):
-            self.path = os.path.join(self.path, INDEX)
-        if os.path.isfile(self.path):
-            self.status = OK
         else:
-            self.status = NOT_FOUND
+            if os.path.isdir(self.path):
+                logging.debug("Found requested dir")
+                self.path = os.path.join(self.path, INDEX)
+            if os.path.isfile(self.path):
+                logging.debug("Found requested file")
+                self.status = OK
+            else:
+                self.status = NOT_FOUND
+        logging.debug("Analyzed request. Status=%s", self.status)
 
     def get_html_file(self) :
         """ Read file for GET request """
+        logging.debug("Reading file...Status=%s", self.status)
         try:
             with open(self.path, "rb") as f:
                 self.response_body = f.read()
         except OSError:
+            logging.exception("Error reading file %s", self.path)
             self.status = INTERNAL_SERVER_ERROR
 
     def get_response_headers(self):
@@ -251,7 +261,7 @@ def main():
         server.start()
         while not stop_event.is_set():
             time.sleep(0.5)
-            logging.debug("Main thread")
+            # logging.debug("Main thread")
     except KeyboardInterrupt:
         logging.debug("KeyboardInterrupt signal received!")
         stop_event.set()
