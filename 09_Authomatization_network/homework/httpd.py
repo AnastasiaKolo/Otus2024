@@ -87,11 +87,12 @@ class EchoServer:
     def listen(self, worker_key):
         """ Listen to incoming connections """
         self.sock.listen(5)
-        self.sock.settimeout(0.5)
+        self.sock.settimeout(1)
         while not self.stop_event.is_set():
             # logging.debug("Worker %s: accepting connections", worker_key)
             try:
                 client, _ = self.sock.accept()
+                client.settimeout(1)
                 self.serve_client(client, worker_key)
             except OSError:
                 pass  # timeout expired
@@ -152,10 +153,9 @@ class HTTPServer(EchoServer):
 
     def read(self, client):
         data = bytearray()
-        client.settimeout(10)
         while b"\r\n\r\n" not in data:
             data += client.recv(self.read_size)
-            if len(data) > self.maxsize:
+            if not data or len(data) > self.maxsize:
                 self.status = BAD_REQUEST
                 break
         return data
@@ -168,7 +168,7 @@ class HTTPServer(EchoServer):
         logging.debug("Preparing headers... Status=%s", self.status)
         self.get_response_headers()
         if self.method == "GET":
-            return self.response_headers + self.response_body
+            return self.response_headers + self.response_body + b"\r\n\r\n"
         return self.response_headers  # HEAD request
 
     def parse_request(self, data: bytes) -> bool:
@@ -184,9 +184,8 @@ class HTTPServer(EchoServer):
         self.method = method.upper()
         self.path = os.path.join(os.path.abspath(os.getcwd()),
                                  self.document_root,
-                                 path.lstrip("/")).lstrip("\\")
+                                 path.lstrip("/"))
         logging.debug("Path %s", self.path)
-        # self.path.lstrip("/").lstrip("\\")  # remove slash in the end
         logging.info("Parsed request method=%s, path=%s, protocol=%s",
                      self.method, self.path, protocol)
         return True
