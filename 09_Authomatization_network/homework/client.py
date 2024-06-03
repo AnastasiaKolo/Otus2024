@@ -25,7 +25,7 @@ def http_client():
     """ http-клиент для тестов """
     print("starting http client")
     conn = http.client.HTTPConnection(HOST, PORT)
-    conn.request("GET", "/")
+    conn.request("GET", "test%20space.html")
     r1 = conn.getresponse()
     print(r1.status, r1.reason)
 

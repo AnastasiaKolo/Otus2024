@@ -9,6 +9,7 @@ import threading
 import time
 
 from socket import socket, AF_INET, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR
+from urllib.parse import unquote
 
 
 LOGGING_FORMAT = "[%(asctime)s] %(levelname).1s %(message)s"
@@ -182,6 +183,7 @@ class HTTPServer(EchoServer):
             self.status = BAD_REQUEST
             return False
         self.method = method.upper()
+        path = unquote(path)
         self.path = os.path.join(os.path.abspath(os.getcwd()),
                                  self.document_root,
                                  path.lstrip("/"))
