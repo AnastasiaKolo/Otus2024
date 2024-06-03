@@ -186,7 +186,7 @@ class HTTPServer(EchoServer):
         self.method = method.upper()
         path = unquote(path)
         if "?" in path:
-            path, query = path.split('?', maxsplit=1)
+            path, _ = path.split('?', maxsplit=1)
         self.path = os.path.join(os.path.abspath(os.getcwd()),
                                  self.document_root,
                                  path.lstrip("/"))
