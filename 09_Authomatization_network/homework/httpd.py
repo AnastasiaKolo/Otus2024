@@ -14,14 +14,15 @@ from urllib.parse import unquote
 
 LOGGING_FORMAT = "[%(asctime)s] %(levelname).1s %(message)s"
 LOGGING_DATEFMT = "%Y.%m.%d %H:%M:%S"
-LOGGING_LEVEL = logging.DEBUG
+LOGGING_LEVEL = logging.INFO
+
 LOGGING_FILE = None
 
 logging.basicConfig(filename=LOGGING_FILE, level=LOGGING_LEVEL,
                     format=LOGGING_FORMAT, datefmt=LOGGING_DATEFMT)
 
 HOST = "127.0.0.1"
-PORT = 8080
+PORT = 80
 DOCUMENT_ROOT = "09_Authomatization_network\\homework\\www"
 INDEX = "index.html"
 ENCODING = "utf-8"
@@ -184,11 +185,13 @@ class HTTPServer(EchoServer):
             return False
         self.method = method.upper()
         path = unquote(path)
+        if "?" in path:
+            path, query = path.split('?', maxsplit=1)
         self.path = os.path.join(os.path.abspath(os.getcwd()),
                                  self.document_root,
                                  path.lstrip("/"))
         logging.debug("Path %s", self.path)
-        logging.info("Parsed request method=%s, path=%s, protocol=%s",
+        logging.debug("Parsed request method=%s, path=%s, protocol=%s",
                      self.method, self.path, protocol)
         return True
 
@@ -247,7 +250,7 @@ def get_params() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Web Server")
     parser.add_argument("--ip", "-i", default=HOST, type=str)
     parser.add_argument("--port", "-p", default=PORT, type=int)
-    parser.add_argument("--workers", "-w", default=2, type=int)
+    parser.add_argument("--workers", "-w", default=10, type=int)
     parser.add_argument("--documentroot", "-r", default=DOCUMENT_ROOT)
     args = parser.parse_args()
     return args
