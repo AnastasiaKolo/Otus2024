@@ -1,6 +1,10 @@
 name: Checks
 
-on: [push]
+on:
+  push:
+    branches:
+    - 'task1'
+    - 'task3*'
 
 jobs:
   build:
