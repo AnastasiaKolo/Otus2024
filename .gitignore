@@ -1,2 +1,6 @@
-./venv
-./.idea
+.venv/*
+01_advanced_basics/homework/report/*
+*__pycache__*
+09_Authomatization_network/homework/http-test-suite-master/httptest/*
+.idea/*
+01_advanced_basics/homework/*.log
